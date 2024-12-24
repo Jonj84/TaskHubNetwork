@@ -8,6 +8,7 @@ import {
   NavigationMenuLink,
 } from '@/components/ui/navigation-menu';
 import { useToast } from '@/hooks/use-toast';
+import { Coins } from 'lucide-react';
 
 export default function NavigationBar() {
   const { user, logout } = useUser();
@@ -60,7 +61,17 @@ export default function NavigationBar() {
         </NavigationMenu>
 
         <div className="flex items-center gap-4">
-          <span>{user?.username}</span>
+          <div className="flex items-center gap-2 text-sm">
+            <Coins className="h-4 w-4" />
+            <span>{user?.tokenBalance || 0} tokens</span>
+          </div>
+          <Link href="/marketplace">
+            <Button variant="default" className="gap-2">
+              <Coins className="h-4 w-4" />
+              Purchase Tokens
+            </Button>
+          </Link>
+          <span className="text-sm text-muted-foreground">{user?.username}</span>
           <Button variant="outline" onClick={handleLogout}>
             Logout
           </Button>
