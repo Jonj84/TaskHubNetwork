@@ -1,0 +1,61 @@
+MVP Overview
+Purpose of the Project
+
+Create a Distributed Task Platform where people can post tasks—either computational (like distributed rendering or data processing) or real-world/manual (like deliveries or verification tasks).
+Token-Based Pay-to-Play Model: Users must acquire and use tokens to post tasks, generating initial revenue and ensuring tasks have real economic value.
+Verified Work to Mint/Release Tokens: Workers are rewarded with tokens when tasks are successfully completed and verified (no wasted proof-of-work; real work creates real value).
+High-Level Architecture
+1. Blockchain Layer
+Core Function: Manages the token supply, task escrow, and final verification records.
+Escrow Mechanism: When a user posts a task, tokens are locked here until the work is verified.
+Token Distribution: Upon verified completion, tokens are released (or minted) to the worker.
+MVP Implementation:
+
+A simple custom chain (e.g., Cosmos SDK or Substrate) with:
+TaskModule: Creates tasks, locks tokens, and confirms final “done” status.
+TokenModule: Defines how tokens are held, transferred, or minted.
+2. Backend (Orchestration & API)
+Core Function: Acts as the “brains” coordinating tasks between the blockchain, workers, and the frontend.
+Task Posting: Receives new tasks from users, requests the blockchain to lock tokens in escrow.
+Verification Logic:
+Computational Tasks: Checks redundant results from multiple workers.
+Physical Tasks: Basic user-based confirmations (photo upload, location stamp, or simple approvals).
+Payout Trigger: Upon successful verification, calls the blockchain to release/mint tokens to workers.
+MVP Implementation:
+
+Simple REST API (e.g., Node.js/Express or Python/FastAPI) for:
+POST /tasks (create a new task, specify reward/tokens),
+POST /tasks/complete (submit proofs/results),
+POST /tasks/verify (trigger final verification and blockchain payout).
+3. Frontend (Web App)
+Core Function: A user interface for posting tasks, managing tokens, browsing available work, and verifying completed tasks.
+Key Pages:
+Task Creation: Form to input task details, define required proof, set reward.
+Task Marketplace: Shows available tasks (computational or manual) for workers to claim.
+Wallet/Account: Displays current token balance and transaction history.
+Verification: If you’re a task poster, you can confirm or dispute completed tasks.
+MVP Implementation:
+
+A single-page application (React, Vue, or Angular) calling the backend’s APIs.
+Basic user sign-up/login, plus a minimal “Buy Tokens” or “Add Tokens” section if you want to simulate the pay-to-play purchase flow.
+4. Worker Client
+Core Function: Receives tasks, does the work, and submits proof of completion.
+Computational Tasks: The client might pull data chunks from the backend, perform calculations, and return results (e.g., checksums).
+Real-World Tasks: Could be a simpler mobile or web client to capture proof (photos, signatures).
+MVP Implementation:
+
+Lightweight Script or CLI in Python/Node/C++ that:
+Contacts GET /tasks/next to fetch the next chunk (for computational tasks).
+Processes it locally.
+Posts results to POST /tasks/complete.
+Or a mobile-friendly web page for manual tasks (upload proof pictures, location data).
+Workflow Summarized
+User Buys Tokens: (In MVP, this could be a simple simulated purchase or direct faucet to keep it easy.)
+User Posts Task: The platform locks the poster’s tokens in escrow on the blockchain.
+Workers See Task: Through the frontend or a separate client, workers pick tasks to do.
+Work is Done & Submitted: Computational results or real-world proofs are submitted to the backend.
+Verification:
+Redundancy for computational tasks (majority match).
+Simple “approve evidence” step for real-world tasks.
+Tokens Released: The backend triggers a blockchain transaction to pay workers from escrow (or partly minted if your model includes inflation).
+Completion: The task is marked done, and the worker sees tokens credited in their balance.
