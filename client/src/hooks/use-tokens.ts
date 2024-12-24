@@ -19,6 +19,11 @@ export function useTokens() {
 
   const purchaseTokensMutation = useMutation<PurchaseResponse, Error, number>({
     mutationFn: async (amount: number) => {
+      // Validate amount before making the request
+      if (!amount || isNaN(amount) || amount < 1 || amount > 10000) {
+        throw new Error('Please enter a valid amount between 1 and 10,000 tokens');
+      }
+
       const response = await fetch('/api/tokens/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
