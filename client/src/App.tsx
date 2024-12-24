@@ -12,12 +12,26 @@ import NavigationBar from './components/NavigationBar';
 import ErrorDashboard from './components/ErrorDashboard';
 
 function App() {
-  const { user, isLoading } = useUser();
+  const { user, isLoading, error } = useUser();
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="fixed inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading your profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-background">
+        <div className="max-w-md p-6 rounded-lg bg-destructive/10 text-center">
+          <p className="text-destructive">Failed to load user profile</p>
+          <p className="text-sm text-muted-foreground mt-2">{error.message}</p>
+        </div>
       </div>
     );
   }
@@ -37,7 +51,11 @@ function App() {
           <Route path="/marketplace" component={TokenMarketplace} />
           <Route path="/history" component={TokenHistory} />
           <Route path="/explorer" component={TransactionExplorer} />
-          <Route>404 - Not Found</Route>
+          <Route>
+            <div className="flex items-center justify-center min-h-[60vh]">
+              <p className="text-muted-foreground">404 - Page not found</p>
+            </div>
+          </Route>
         </Switch>
 
         {/* Error Dashboard positioned at the bottom of the viewport */}
