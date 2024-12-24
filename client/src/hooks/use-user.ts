@@ -9,12 +9,24 @@ type LoginData = {
 export function useUser() {
   const queryClient = useQueryClient();
 
-  const { data: user, isLoading } = useQuery<User>({
+  const { data: user, isLoading, error } = useQuery<User>({
     queryKey: ['/api/user'],
+    queryFn: async () => {
+      const response = await fetch('/api/user', {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          return null;
+        }
+        throw new Error(await response.text());
+      }
+
+      return response.json();
+    },
     staleTime: Infinity, // Never consider data stale
     gcTime: 1000 * 60 * 60, // Cache for 1 hour
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
     retry: false, // Don't retry failed requests
   });
 
@@ -78,6 +90,7 @@ export function useUser() {
   return {
     user,
     isLoading,
+    error,
     login: loginMutation.mutateAsync,
     register: registerMutation.mutateAsync,
     logout: logoutMutation.mutateAsync,
