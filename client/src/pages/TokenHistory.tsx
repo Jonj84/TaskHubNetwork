@@ -38,14 +38,29 @@ interface TokenHistoryResponse {
 }
 
 export default function TokenHistory() {
-  const { data, isLoading } = useQuery<TokenHistoryResponse>({
+  const { data, isLoading, isError } = useQuery<TokenHistoryResponse>({
     queryKey: ['/api/tokens/history'],
   });
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="fixed inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading transaction history...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="container mx-auto py-8">
+        <Card className="bg-destructive/10">
+          <CardContent className="pt-6">
+            <p className="text-center text-destructive">Failed to load transaction history</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -54,11 +69,11 @@ export default function TokenHistory() {
   const transactions = data?.transactions || [];
 
   return (
-    <div className="container mx-auto py-8">
-      <h1 className="text-4xl font-bold mb-8">Token History</h1>
+    <div className="container mx-auto py-8 space-y-8">
+      <h1 className="text-4xl font-bold">Token History</h1>
 
       {insights && (
-        <div className="grid gap-4 md:grid-cols-3 mb-8">
+        <div className="grid gap-4 md:grid-cols-3">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
