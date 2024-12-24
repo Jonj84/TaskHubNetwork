@@ -4,9 +4,9 @@ import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
+  CardDescription,
 } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
@@ -16,27 +16,26 @@ import { AlertCircle, CreditCard, Percent } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { logErrorToServer } from '@/lib/errorLogging';
 
-// Initialize Stripe outside of component
-let stripePromise: Promise<any> | null = null;
-
-const getStripe = () => {
-  if (!stripePromise && import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-    stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
-  }
-  return stripePromise;
-};
+// Ensure Stripe is initialized with the public key
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
 interface PriceInfo {
   basePrice: number;
   discount: number;
   finalPrice: number;
+  tier: string;
 }
 
 export default function TokenMarketplace() {
   const { toast } = useToast();
   const [tokenAmount, setTokenAmount] = useState<number>(100);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [pricing, setPricing] = useState<PriceInfo>({ basePrice: 0, discount: 0, finalPrice: 0 });
+  const [pricing, setPricing] = useState<PriceInfo>({ 
+    basePrice: 0, 
+    discount: 0, 
+    finalPrice: 0,
+    tier: 'standard'
+  });
   const [isPriceLoading, setIsPriceLoading] = useState(false);
 
   // Debounced price calculation
@@ -46,7 +45,7 @@ export default function TokenMarketplace() {
         setIsPriceLoading(true);
 
         if (!isValidAmount(tokenAmount)) {
-          setPricing({ basePrice: 0, discount: 0, finalPrice: 0 });
+          setPricing({ basePrice: 0, discount: 0, finalPrice: 0, tier: 'standard' });
           return;
         }
 
@@ -103,16 +102,19 @@ export default function TokenMarketplace() {
         throw new Error(errorText);
       }
 
-      const { url, sessionId } = await response.json();
+      const { sessionId } = await response.json();
 
-      // Log the redirect attempt
-      console.log('Redirecting to Stripe checkout:', { sessionId, url });
+      // Initialize Stripe
+      const stripe = await stripePromise;
+      if (!stripe) {
+        throw new Error('Failed to initialize Stripe. Please check your configuration.');
+      }
 
-      // Use the direct checkout URL from Stripe
-      if (url) {
-        window.location.href = url;
-      } else {
-        throw new Error('No checkout URL received from server');
+      // Redirect to Stripe checkout
+      const { error } = await stripe.redirectToCheckout({ sessionId });
+
+      if (error) {
+        throw error;
       }
 
     } catch (error: any) {
@@ -123,6 +125,7 @@ export default function TokenMarketplace() {
         title: 'Purchase Failed',
         description: error.message || 'Failed to process payment. Please try again.',
       });
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -208,7 +211,7 @@ export default function TokenMarketplace() {
                 >
                   <span className="flex items-center gap-1">
                     <Percent className="h-4 w-4" />
-                    Volume Discount:
+                    Volume Discount ({pricing.tier}):
                   </span>
                   <span>-{pricing.discount}%</span>
                 </motion.div>

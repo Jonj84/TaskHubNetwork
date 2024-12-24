@@ -63,11 +63,8 @@ export async function createStripeSession(req: Request, res: Response) {
       cancel_url: session.cancel_url
     });
 
-    // Return session ID and URL
-    res.json({
-      url: session.url, // Include the direct checkout URL
-      sessionId: session.id
-    });
+    // Return session ID only since we're using Stripe.js redirectToCheckout
+    res.json({ sessionId: session.id });
   } catch (error: any) {
     console.error("Stripe session creation error:", {
       error: error.message,
@@ -160,8 +157,8 @@ export async function handleStripeWebhook(req: Request, res: Response) {
         sessionId: session.id
       });
 
-      // TODO: Credit tokens to user account
-      // This will be implemented in the next step
+      // Credit tokens to user account will be implemented in the next step
+      // This ensures the transaction is recorded even if the success page isn't visited
     }
 
     res.json({ received: true });
