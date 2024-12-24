@@ -37,27 +37,24 @@ app.use((req, res, next) => {
   next();
 });
 
-// Error handling middleware
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  log(`Error: ${err.message}`);
-  if (err.stack) {
-    log(`Stack: ${err.stack}`);
-  }
-  res.status(500).json({ error: "Internal Server Error" });
-});
-
 (async () => {
   try {
     const server = registerRoutes(app);
 
+    // Global error handler
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
 
       log(`Error handling request: ${message}`);
+      if (err.stack) {
+        log(`Stack: ${err.stack}`);
+      }
+
       res.status(status).json({ message });
     });
 
+    // Setup Vite in development mode
     if (app.get("env") === "development") {
       await setupVite(app, server);
     } else {
@@ -73,8 +70,11 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
       log(`Server error: ${error.message}`);
       process.exit(1);
     });
-  } catch (error) {
-    log(`Fatal error during startup: ${error}`);
+  } catch (error: any) {
+    log(`Fatal error during startup: ${error.message}`);
+    if (error.stack) {
+      log(`Stack: ${error.stack}`);
+    }
     process.exit(1);
   }
 })();

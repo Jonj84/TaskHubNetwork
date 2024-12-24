@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
-import { setupWebSocket, ws } from "./ws";
+import { setupWebSocket } from "./ws";
 import { db } from "@db";
 import { tasks, tokenTransactions, users } from "@db/schema";
 import { and, eq, desc, sql } from "drizzle-orm";
@@ -18,7 +18,7 @@ interface AuthRequest extends Request {
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
   setupAuth(app);
-  setupWebSocket(httpServer);
+  const { broadcast } = setupWebSocket(httpServer);
 
   // Middleware to ensure user is authenticated
   const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -30,24 +30,26 @@ export function registerRoutes(app: Express): Server {
 
   // Tasks
   app.get("/api/tasks", requireAuth, async (req: AuthRequest, res: Response) => {
-    const allTasks = await db.query.tasks.findMany({
-      orderBy: desc(tasks.created_at),
-    });
-    res.json(allTasks);
+    try {
+      const allTasks = await db.query.tasks.findMany({
+        orderBy: desc(tasks.created_at),
+      });
+      res.json(allTasks);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+      res.status(500).send("Failed to fetch tasks");
+    }
   });
 
   app.post("/api/tasks", requireAuth, async (req: AuthRequest, res: Response) => {
     const { title, description, type, reward, proofRequired } = req.body;
 
-    // Check if user has enough tokens
     if (!req.user || req.user.tokenBalance < reward) {
       return res.status(400).send("Insufficient token balance");
     }
 
     try {
-      // Start transaction
       const [task] = await db.transaction(async (tx) => {
-        // Create task
         const [newTask] = await tx
           .insert(tasks)
           .values({
@@ -60,7 +62,6 @@ export function registerRoutes(app: Express): Server {
           })
           .returning();
 
-        // Lock tokens in escrow
         await tx.insert(tokenTransactions).values({
           userId: req.user!.id,
           amount: -reward,
@@ -68,10 +69,9 @@ export function registerRoutes(app: Express): Server {
           taskId: newTask.id,
         });
 
-        // Update user balance
         await tx
           .update(users)
-          .set({ 
+          .set({
             tokenBalance: sql`${users.tokenBalance} - ${reward}`,
             updated_at: new Date(),
           })
@@ -80,8 +80,7 @@ export function registerRoutes(app: Express): Server {
         return [newTask];
       });
 
-      // Notify websocket clients about the new task
-      ws.notifyTaskUpdate(task.id);
+      broadcast('task_update', { taskId: task.id });
       res.json(task);
     } catch (error) {
       console.error('Error creating task:', error);
@@ -118,7 +117,7 @@ export function registerRoutes(app: Express): Server {
         .where(eq(tasks.id, taskId))
         .returning();
 
-      ws.notifyTaskUpdate(taskId);
+      broadcast('task_update', { taskId });
       res.json(updatedTask);
     } catch (error) {
       console.error('Error submitting proof:', error);
@@ -162,7 +161,7 @@ export function registerRoutes(app: Express): Server {
           // Update worker balance
           await tx
             .update(users)
-            .set({ 
+            .set({
               tokenBalance: sql`${users.tokenBalance} + ${task.reward}`,
               updated_at: new Date(),
             })
@@ -171,7 +170,7 @@ export function registerRoutes(app: Express): Server {
           // Update task status
           await tx
             .update(tasks)
-            .set({ 
+            .set({
               status: "completed",
               updated_at: new Date(),
             })
@@ -188,7 +187,7 @@ export function registerRoutes(app: Express): Server {
           // Update creator balance
           await tx
             .update(users)
-            .set({ 
+            .set({
               tokenBalance: sql`${users.tokenBalance} + ${task.reward}`,
               updated_at: new Date(),
             })
@@ -197,7 +196,7 @@ export function registerRoutes(app: Express): Server {
           // Update task status
           await tx
             .update(tasks)
-            .set({ 
+            .set({
               status: "open",
               workerId: null,
               proofSubmitted: null,
@@ -207,7 +206,7 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      ws.notifyTaskUpdate(taskId);
+      broadcast('task_update', { taskId });
       res.json({ success: true });
     } catch (error) {
       console.error('Error verifying task:', error);
@@ -252,7 +251,7 @@ export function registerRoutes(app: Express): Server {
         // Update user balance
         return await tx
           .update(users)
-          .set({ 
+          .set({
             tokenBalance: sql`${users.tokenBalance} + ${amount}`,
             updated_at: new Date(),
           })

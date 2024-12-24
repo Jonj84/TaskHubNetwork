@@ -5,7 +5,7 @@ import { type Server } from "http";
 const clients = new Set<WebSocket>();
 
 // Create a broadcast function that's used across the application
-function broadcast(type: string, data: any) {
+export function broadcast(type: string, data: any) {
   const message = JSON.stringify({ type, data });
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -18,11 +18,11 @@ export function setupWebSocket(server: Server) {
   const wss = new WebSocketServer({ 
     server,
     // Handle the Vite HMR websocket specially
-    handleProtocols: (protocols: Set<string>) => {
-      if (protocols.has('vite-hmr')) {
+    handleProtocols: (protocols: Set<string> | string[]) => {
+      if (protocols instanceof Set ? protocols.has('vite-hmr') : protocols.includes('vite-hmr')) {
         return false; // Let Vite handle its own WebSocket
       }
-      return protocols.size > 0 ? Array.from(protocols)[0] : false;
+      return protocols instanceof Set ? Array.from(protocols)[0] : protocols[0] || false;
     }
   });
 
@@ -52,10 +52,3 @@ export function setupWebSocket(server: Server) {
 
   return { broadcast };
 }
-
-// Export the broadcast function for use in other modules
-export const ws = {
-  notifyTaskUpdate: (taskId: number) => {
-    broadcast('task_update', { taskId });
-  },
-};
