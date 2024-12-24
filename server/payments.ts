@@ -110,6 +110,7 @@ export async function createStripeSession(req: Request, res: Response) {
     // Return only the sessionId and pricing information
     res.json({
       sessionId: session.id,
+      url: session.url,
       basePrice: amount * BASE_PRICE / 100,
       discount: discountPercentage,
       finalPrice: priceInCents / 100,

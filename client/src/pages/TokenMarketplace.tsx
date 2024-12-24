@@ -93,10 +93,11 @@ export default function TokenMarketplace() {
         throw new Error('Failed to load Stripe');
       }
 
-      const { error } = await stripe.redirectToCheckout({ sessionId });
-
-      if (error) {
-        throw error;
+      const { url } = await response.json();
+      if (url) {
+        window.open(url, '_blank');
+      } else {
+        throw new Error('No checkout URL received');
       }
     } catch (error: any) {
       // Log error with context
