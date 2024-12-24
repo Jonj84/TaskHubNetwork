@@ -32,6 +32,18 @@ export function registerRoutes(app: Express): Server {
   // Setup WebSocket server after HTTP server is created
   const { broadcast } = setupWebSocket(httpServer);
 
+  // Add the Stripe webhook endpoint before any body parsing middleware
+  // This needs raw body for proper signature verification
+  app.post(
+    "/api/webhooks/stripe",
+    express.raw({ type: 'application/json' }),
+    handleStripeWebhook
+  );
+
+  // Standard routes with JSON parsing
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
+
   // Error handling middleware
   app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     console.error('Error:', err);
@@ -48,14 +60,6 @@ export function registerRoutes(app: Express): Server {
       message: err.message || 'Internal Server Error',
     });
   });
-
-  // Add the Stripe webhook endpoint
-  // This needs to be before the json middleware to properly verify signatures
-  app.post(
-    "/api/webhooks/stripe/we_1QZXXeDP8A1L3VjbvGyrmWGf",
-    express.raw({ type: "application/json" }),
-    handleStripeWebhook
-  );
 
   // Payment endpoints
   app.post("/api/payments/create-session", requireAuth, createStripeSession);
@@ -125,6 +129,20 @@ export function registerRoutes(app: Express): Server {
         .select()
         .from(tokenPackages)
         .orderBy(tokenPackages.price);
+
+      // Ensure each package has a valid Stripe product/price
+      for (const pkg of packages) {
+        try {
+          await createStripeSession({
+            body: { packageId: pkg.id },
+            user: { id: 0 }, // Dummy user for product creation
+          } as any, {
+            status: () => ({ json: () => {} }),
+          } as any);
+        } catch (error) {
+          console.error(`Failed to ensure Stripe product for package ${pkg.id}:`, error);
+        }
+      }
 
       res.json(packages);
     } catch (error: unknown) {

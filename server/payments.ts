@@ -17,29 +17,40 @@ async function ensureStripeProduct(tokenPackage: any) {
     throw new Error("Stripe is not configured");
   }
 
-  // If we already have a price ID, return it
-  if (tokenPackage.stripePriceId) {
-    return tokenPackage.stripePriceId;
-  }
-
   try {
-    // Create a new product in Stripe
+    // If we already have valid Stripe IDs, validate them first
+    if (tokenPackage.stripeProductId && tokenPackage.stripePriceId) {
+      try {
+        // Verify the price still exists and is valid
+        await stripe.prices.retrieve(tokenPackage.stripePriceId);
+        return tokenPackage.stripePriceId;
+      } catch (error) {
+        console.log("Cached Stripe price not found, creating new one");
+      }
+    }
+
+    // Create a new product in Stripe with better metadata
     const product = await stripe.products.create({
       name: tokenPackage.name,
-      description: `${tokenPackage.tokenAmount} tokens`,
+      description: `${tokenPackage.tokenAmount} tokens - ${tokenPackage.description}`,
       metadata: {
         packageId: tokenPackage.id.toString(),
+        tokenAmount: tokenPackage.tokenAmount.toString(),
+        isPopular: tokenPackage.isPopular ? "true" : "false",
       },
     });
 
     // Create a price for the product
     const price = await stripe.prices.create({
       product: product.id,
-      unit_amount: tokenPackage.price * 100, // Convert to cents
+      unit_amount: tokenPackage.price, // Price is already in cents
       currency: "usd",
+      metadata: {
+        packageId: tokenPackage.id.toString(),
+      },
     });
 
-    // Store the IDs in our database
+    // Update our database with the new Stripe IDs
     await db
       .update(tokenPackages)
       .set({
@@ -49,10 +60,11 @@ async function ensureStripeProduct(tokenPackage: any) {
       })
       .where(eq(tokenPackages.id, tokenPackage.id));
 
+    console.log(`Created Stripe product/price for package ${tokenPackage.name}`);
     return price.id;
   } catch (error) {
-    console.error("Failed to create Stripe product:", error);
-    throw new Error("Failed to create Stripe product");
+    console.error("Failed to create Stripe product/price:", error);
+    throw new Error("Failed to create Stripe product/price");
   }
 }
 
@@ -79,7 +91,7 @@ export async function createStripeSession(req: Request, res: Response) {
       return res.status(404).json({ message: "Package not found" });
     }
 
-    // Ensure we have a Stripe price ID for this package
+    // Ensure we have a valid Stripe price ID for this package
     const stripePriceId = await ensureStripeProduct(tokenPackage);
 
     // Get the base URL dynamically
@@ -117,6 +129,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
   }
 
   try {
+    // Important: Use raw body for webhook signature verification
     const event = stripe!.webhooks.constructEvent(
       req.body,
       sig,
