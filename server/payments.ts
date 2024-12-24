@@ -40,23 +40,21 @@ export async function createStripeSession(req: Request, res: Response) {
       payment_method_types: ["card"],
       line_items: [
         {
+          quantity: 1,
           price_data: {
             currency: "usd",
+            unit_amount: tokenPackage.price * 100,
             product_data: {
               name: tokenPackage.name,
               description: `${tokenPackage.tokenAmount} tokens`,
+              images: [],
             },
-            unit_amount: tokenPackage.price * 100, // Convert to cents
           },
-          quantity: 1,
         },
       ],
       mode: "payment",
-      // Use relative URLs to avoid CORS and protocol issues
-      success_url: `/marketplace?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `/marketplace?canceled=true`,
-      allow_promotion_codes: true,
-      billing_address_collection: 'required',
+      success_url: `${process.env.APP_URL || 'https://' + process.env.REPL_SLUG + '.' + process.env.REPL_OWNER + '.repl.co'}/marketplace?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.APP_URL || 'https://' + process.env.REPL_SLUG + '.' + process.env.REPL_OWNER + '.repl.co'}/marketplace?canceled=true`,
       metadata: {
         userId: userId.toString(),
         packageId: packageId.toString(),
