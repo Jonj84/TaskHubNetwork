@@ -18,6 +18,11 @@ export async function logErrorToServer(error: Error, context?: string) {
       context,
     };
 
+    // Log to console in development
+    if (import.meta.env.DEV) {
+      console.error(`[${context}] Error:`, error);
+    }
+
     await fetch('/api/log/error', {
       method: 'POST',
       headers: {
@@ -36,11 +41,11 @@ export async function logErrorToServer(error: Error, context?: string) {
 // Global error handler for uncaught errors
 window.addEventListener('error', (event) => {
   event.preventDefault();
-  logErrorToServer(event.error);
+  logErrorToServer(event.error, 'uncaught_error');
 });
 
 // Global handler for unhandled promise rejections
 window.addEventListener('unhandledrejection', (event) => {
   event.preventDefault();
-  logErrorToServer(new Error(event.reason));
+  logErrorToServer(new Error(event.reason), 'unhandled_rejection');
 });

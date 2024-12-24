@@ -12,13 +12,20 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
-import { CreditCard, Bitcoin, Percent } from 'lucide-react';
+import { CreditCard, Percent } from 'lucide-react';
 import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { logErrorToServer } from '@/lib/errorLogging';
 
 // Initialize Stripe outside component
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+let stripePromise: Promise<any> | null = null;
+
+const getStripe = () => {
+  if (!stripePromise && import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
+    stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+  }
+  return stripePromise;
+};
 
 interface PaymentFlowProps {
   open: boolean;
@@ -60,11 +67,7 @@ export default function PaymentFlow({
         setPricing(data);
       } catch (error) {
         console.error('Failed to calculate price:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Price Calculation Error',
-          description: 'Failed to calculate token price. Please try again.',
-        });
+        logErrorToServer(error as Error, 'price_calculation_failed');
       }
     };
 
@@ -89,31 +92,33 @@ export default function PaymentFlow({
       });
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        const errorText = await response.text();
+        throw new Error(errorText);
       }
 
       const { sessionId } = await response.json();
-      const stripe = await stripePromise;
+      const stripe = await getStripe();
 
       if (!stripe) {
-        throw new Error('Failed to load Stripe');
+        throw new Error('Failed to initialize Stripe');
       }
 
+      // Redirect to Stripe checkout
       const { error } = await stripe.redirectToCheckout({ sessionId });
 
       if (error) {
         throw error;
       }
 
+      // Close dialog after successful redirect
       onOpenChange(false);
     } catch (error: any) {
-      // Log error to server
-      await logErrorToServer(error);
+      await logErrorToServer(error, 'payment_initiation_failed');
 
       toast({
         variant: 'destructive',
         title: 'Payment Failed',
-        description: error.message || 'Failed to process payment',
+        description: error.message || 'Failed to process payment. Please try again.',
       });
     } finally {
       setIsProcessing(false);

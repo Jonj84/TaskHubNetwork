@@ -23,6 +23,18 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BlockchainLoader } from './BlockchainLoader';
+import { loadStripe } from '@stripe/stripe-js';
+import { logErrorToServer } from '@/lib/errorLogging';
+
+// Initialize Stripe outside component
+let stripePromise: Promise<any> | null = null;
+
+const getStripe = () => {
+  if (!stripePromise && import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
+    stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+  }
+  return stripePromise;
+};
 
 const purchaseSchema = z.object({
   amount: z.number()
@@ -46,33 +58,52 @@ export default function PurchaseTokensModal() {
 
   const purchaseTokensMutation = useMutation({
     mutationFn: async (amount: number) => {
-      const response = await fetch('/api/tokens/purchase', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ amount }),
-      });
+      try {
+        // First get the Stripe instance
+        const stripe = await getStripe();
+        if (!stripe) {
+          throw new Error('Failed to initialize Stripe');
+        }
 
-      if (!response.ok) {
-        throw new Error(await response.text());
+        // Create checkout session
+        const response = await fetch('/api/tokens/purchase', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ amount }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const { sessionId } = await response.json();
+
+        // Redirect to Stripe checkout using Stripe.js
+        const { error } = await stripe.redirectToCheckout({ sessionId });
+        if (error) {
+          throw error;
+        }
+
+        return { success: true };
+      } catch (error: any) {
+        await logErrorToServer(error, 'stripe_checkout_failed');
+        throw error;
       }
-
-      return response.json();
-    },
-    onSuccess: (data: { sessionId: string }) => { // Assuming the API returns a sessionId
-      window.open(data.sessionId, '_blank'); // Open Stripe checkout in a new window
-      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-      setOpen(false);
-      toast({
-        title: 'Success',
-        description: 'Redirecting to Stripe Checkout...', // Inform the user
-      });
     },
     onError: (error: Error) => {
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Failed to purchase tokens',
+        title: 'Purchase Failed',
+        description: error.message || 'Failed to initiate purchase',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+      setOpen(false);
+      toast({
+        title: 'Success',
+        description: 'Redirecting to checkout...',
       });
     },
   });

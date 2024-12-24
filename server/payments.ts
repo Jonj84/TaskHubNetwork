@@ -13,21 +13,24 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 export async function createStripeSession(req: Request, res: Response) {
   try {
     const { amount } = req.body;
-    const userId = req.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
 
     // Validate amount
     if (!amount || isNaN(amount) || amount < 1 || amount > 10000) {
       return res.status(400).json({
-        message: "Token amount must be between 1 and 10,000"
+        message: "Token amount must be between 1 and 10,000",
+        code: 'INVALID_AMOUNT'
       });
     }
 
     // Calculate price in cents (Stripe expects amounts in smallest currency unit)
     const priceInCents = Math.round(amount * 100); // $1 per token
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+
+    console.log('Creating Stripe session:', {
+      amount,
+      priceInCents,
+      baseUrl
+    });
 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
@@ -38,6 +41,7 @@ export async function createStripeSession(req: Request, res: Response) {
             currency: "usd",
             product_data: {
               name: `${amount} Platform Tokens`,
+              description: `Purchase of ${amount} tokens`,
             },
             unit_amount: priceInCents,
           },
@@ -45,32 +49,53 @@ export async function createStripeSession(req: Request, res: Response) {
         },
       ],
       mode: "payment",
-      success_url: `${req.protocol}://${req.get('host')}/marketplace?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.protocol}://${req.get('host')}/marketplace?canceled=true`,
+      success_url: `${baseUrl}?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}?canceled=true`,
       metadata: {
-        userId: userId.toString(),
         tokenAmount: amount.toString(),
       },
     });
 
+    console.log('Stripe session created:', {
+      sessionId: session.id,
+      success_url: session.success_url,
+      cancel_url: session.cancel_url
+    });
+
     // Return session information
     res.json({
-      sessionId: session.id,
+      sessionId: session.id
     });
   } catch (error: any) {
-    console.error("Stripe session creation error:", error);
-    res.status(500).json({ 
-      message: error.message || "Failed to create payment session" 
+    console.error("Stripe session creation error:", {
+      error: error.message,
+      type: error.type,
+      stack: error.stack,
+      stripeCode: error.code
     });
+
+    // Format Stripe errors appropriately
+    if (error.type?.startsWith('Stripe')) {
+      res.status(400).json({ 
+        message: error.message,
+        code: error.code,
+        type: error.type
+      });
+    } else {
+      res.status(500).json({ 
+        message: error.message || "Failed to create payment session",
+        code: 'INTERNAL_ERROR'
+      });
+    }
   }
 }
 
 export async function handleStripeWebhook(req: Request, res: Response) {
-  try {
-    const sig = req.headers["stripe-signature"];
+  const sig = req.headers["stripe-signature"];
 
+  try {
     if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
-      return res.status(400).json({ message: "Missing required Stripe configuration" });
+      throw new Error("Missing Stripe webhook configuration");
     }
 
     const event = stripe.webhooks.constructEvent(
@@ -79,40 +104,36 @@ export async function handleStripeWebhook(req: Request, res: Response) {
       process.env.STRIPE_WEBHOOK_SECRET
     );
 
+    console.log('Received Stripe webhook event:', {
+      type: event.type,
+      id: event.id
+    });
+
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      const { userId, tokenAmount } = session.metadata || {};
+      const { tokenAmount } = session.metadata || {};
 
-      if (!userId || !tokenAmount) {
+      if (!tokenAmount) {
         throw new Error("Missing metadata in Stripe session");
       }
 
-      // Record the purchase and update balance
-      await db.transaction(async (tx) => {
-        // Create transaction record
-        await tx.insert(tokenTransactions).values({
-          userId: parseInt(userId),
-          amount: parseInt(tokenAmount),
-          type: "purchase",
-          timestamp: new Date()
-        });
-
-        // Update user's token balance
-        await tx
-          .update(users)
-          .set({
-            tokenBalance: sql`${users.tokenBalance} + ${parseInt(tokenAmount)}`,
-            updated_at: new Date(),
-          })
-          .where(eq(users.id, parseInt(userId)));
+      console.log('Payment completed:', {
+        tokenAmount,
+        sessionId: session.id
       });
-
-      console.log(`Successfully processed payment for user ${userId}, amount: ${tokenAmount} tokens`);
     }
 
     res.json({ received: true });
-  } catch (error) {
-    console.error("Stripe webhook error:", error);
-    res.status(400).json({ message: "Webhook error" });
+  } catch (error: any) {
+    console.error("Stripe webhook error:", {
+      error: error.message,
+      type: error.type,
+      stack: error.stack
+    });
+
+    res.status(400).json({ 
+      message: "Webhook error",
+      error: error.message
+    });
   }
 }
