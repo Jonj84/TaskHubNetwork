@@ -51,6 +51,11 @@ export default function NavigationBar() {
                 <NavigationMenuLink>Wallet</NavigationMenuLink>
               </Link>
             </NavigationMenuItem>
+            <NavigationMenuItem>
+              <Link href="/explorer">
+                <NavigationMenuLink>Explorer</NavigationMenuLink>
+              </Link>
+            </NavigationMenuItem>
           </NavigationMenuList>
         </NavigationMenu>
 
