@@ -14,6 +14,9 @@ import { Input } from '@/components/ui/input';
 import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Percent } from 'lucide-react';
+import { loadStripe } from '@stripe/stripe-js';
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
 interface PriceInfo {
   basePrice: number;
@@ -25,7 +28,6 @@ export default function TokenMarketplace() {
   const { toast } = useToast();
   const [tokenAmount, setTokenAmount] = useState(100);
   const [isProcessing, setIsProcessing] = useState(false);
-  const { purchaseTokens } = useTokens();
   const [pricing, setPricing] = useState<PriceInfo>({ basePrice: 10, discount: 0, finalPrice: 10 });
 
   // Calculate price with volume discounts
@@ -54,18 +56,37 @@ export default function TokenMarketplace() {
   const handlePurchase = async () => {
     try {
       setIsProcessing(true);
-      await purchaseTokens(tokenAmount);
-      toast({
-        title: 'Success',
-        description: `Successfully purchased ${tokenAmount} tokens`,
+
+      // Create Stripe checkout session
+      const response = await fetch('/api/tokens/purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ amount: tokenAmount }),
       });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const { sessionId } = await response.json();
+
+      // Redirect to Stripe Checkout
+      const stripe = await stripePromise;
+      if (!stripe) {
+        throw new Error('Failed to load Stripe');
+      }
+
+      const { error } = await stripe.redirectToCheckout({ sessionId });
+      if (error) {
+        throw error;
+      }
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
-        description: error.message || 'Failed to purchase tokens',
+        description: error.message || 'Failed to process payment',
       });
-    } finally {
       setIsProcessing(false);
     }
   };

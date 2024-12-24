@@ -1,10 +1,10 @@
 import { type Request, Response } from "express";
 import Stripe from "stripe";
 import { db } from "@db";
-import { tokenTransactions, users, tokenPackages } from "@db/schema";
+import { tokenTransactions, users } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
 
-const stripe = process.env.STRIPE_SECRET_KEY 
+const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-12-18.acacia" })
   : null;
 
@@ -12,51 +12,86 @@ if (!stripe) {
   console.error("Warning: STRIPE_SECRET_KEY not configured");
 }
 
-// Calculate price for custom token amount
-function calculateTokenPrice(amount: number): number {
-  // Base price per token (in cents)
-  const BASE_PRICE = 100; // $1.00 per token
-
-  // Volume discounts
-  if (amount >= 1000) {
-    return Math.floor(amount * BASE_PRICE * 0.8); // 20% discount
-  } else if (amount >= 500) {
-    return Math.floor(amount * BASE_PRICE * 0.9); // 10% discount
+// Define pricing tiers
+const PRICING_TIERS = {
+  base: {
+    name: "Base Tier",
+    pricePerToken: 10, // $0.10 per token in cents
+    minTokens: 1,
+    maxTokens: 499,
+    discount: 0
+  },
+  silver: {
+    name: "Silver Tier",
+    pricePerToken: 9, // $0.09 per token in cents
+    minTokens: 500,
+    maxTokens: 999,
+    discount: 10
+  },
+  gold: {
+    name: "Gold Tier",
+    pricePerToken: 8, // $0.08 per token in cents
+    minTokens: 1000,
+    maxTokens: 10000,
+    discount: 20
   }
-  return amount * BASE_PRICE;
+};
+
+// Calculate price based on token amount and volume discounts
+function calculateTokenPrice(amount: number): {
+  priceInCents: number;
+  discount: number;
+  tier: string;
+} {
+  let tier: keyof typeof PRICING_TIERS;
+
+  if (amount >= PRICING_TIERS.gold.minTokens) {
+    tier = 'gold';
+  } else if (amount >= PRICING_TIERS.silver.minTokens) {
+    tier = 'silver';
+  } else {
+    tier = 'base';
+  }
+
+  const { pricePerToken, discount } = PRICING_TIERS[tier];
+  const priceInCents = Math.floor(amount * pricePerToken);
+
+  return { 
+    priceInCents,
+    discount,
+    tier
+  };
 }
 
-async function createCustomTokenProduct(amount: number): Promise<string> {
+// Create or get Stripe product for token purchase
+async function getOrCreateTokenProduct(): Promise<string> {
   if (!stripe) {
     throw new Error("Stripe is not configured");
   }
 
-  try {
-    // Create a one-time product for this custom amount
-    const product = await stripe.products.create({
-      name: `${amount} Custom Tokens`,
-      description: `Purchase of ${amount} tokens`,
-      metadata: {
-        tokenAmount: amount.toString(),
-        isCustom: "true",
-      },
-    });
+  const productName = "Platform Tokens";
 
-    // Create a price for the custom amount
-    const price = await stripe.prices.create({
-      product: product.id,
-      unit_amount: calculateTokenPrice(amount),
-      currency: "usd",
-      metadata: {
-        tokenAmount: amount.toString(),
-      },
-    });
+  // Search for existing product
+  const products = await stripe.products.list({
+    limit: 1,
+    active: true
+  });
 
-    return price.id;
-  } catch (error) {
-    console.error("Failed to create custom token product:", error);
-    throw new Error("Failed to create custom token product");
+  let product;
+  if (products.data.length > 0) {
+    product = products.data[0];
+  } else {
+    // Create new product if none exists
+    product = await stripe.products.create({
+      name: productName,
+      description: "Platform tokens with volume discounts",
+      metadata: {
+        type: "platform_token"
+      }
+    });
   }
+
+  return product.id;
 }
 
 export async function createStripeSession(req: Request, res: Response) {
@@ -64,40 +99,38 @@ export async function createStripeSession(req: Request, res: Response) {
     if (!stripe) {
       return res.status(500).json({ message: "Stripe is not configured" });
     }
-    const { packageId, customAmount } = req.body;
+
+    const { amount } = req.body;
     const userId = req.user?.id;
 
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    let stripePriceId: string;
-    let tokenAmount: number;
-
-    if (customAmount) {
-      // Validate custom amount
-      if (customAmount < 1 || customAmount > 10000) {
-        return res.status(400).json({ 
-          message: "Custom token amount must be between 1 and 10,000" 
-        });
-      }
-      stripePriceId = await createCustomTokenProduct(customAmount);
-      tokenAmount = customAmount;
-    } else {
-      // Regular package purchase
-      const [tokenPackage] = await db
-        .select()
-        .from(tokenPackages)
-        .where(eq(tokenPackages.id, packageId))
-        .limit(1);
-
-      if (!tokenPackage) {
-        return res.status(404).json({ message: "Package not found" });
-      }
-
-      stripePriceId = await createCustomTokenProduct(tokenPackage.tokenAmount);
-      tokenAmount = tokenPackage.tokenAmount;
+    // Validate amount
+    if (!amount || isNaN(amount) || amount < 1 || amount > 10000) {
+      return res.status(400).json({
+        message: "Token amount must be between 1 and 10,000"
+      });
     }
+
+    // Get product ID
+    const productId = await getOrCreateTokenProduct();
+
+    // Calculate price with volume discount
+    const { priceInCents, discount, tier } = calculateTokenPrice(amount);
+
+    // Create a one-time price
+    const price = await stripe.prices.create({
+      product: productId,
+      unit_amount: priceInCents,
+      currency: "usd",
+      metadata: {
+        tokenAmount: amount.toString(),
+        discount: discount.toString(),
+        tier
+      },
+    });
 
     // Get the base URL dynamically
     const baseUrl = process.env.APP_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
@@ -107,7 +140,7 @@ export async function createStripeSession(req: Request, res: Response) {
       payment_method_types: ["card"],
       line_items: [
         {
-          price: stripePriceId,
+          price: price.id,
           quantity: 1,
         },
       ],
@@ -116,12 +149,19 @@ export async function createStripeSession(req: Request, res: Response) {
       cancel_url: `${baseUrl}/marketplace?canceled=true`,
       metadata: {
         userId: userId.toString(),
-        tokenAmount: tokenAmount.toString(),
-        isCustomAmount: customAmount ? "true" : "false",
+        tokenAmount: amount.toString(),
+        discount: discount.toString(),
+        tier
       },
     });
 
-    res.json({ sessionId: session.id });
+    res.json({
+      sessionId: session.id,
+      discount,
+      tier,
+      finalPrice: priceInCents / 100, // Convert to dollars for display
+      basePrice: (amount * PRICING_TIERS.base.pricePerToken) / 100
+    });
   } catch (error) {
     console.error("Stripe session creation error:", error);
     res.status(500).json({ message: "Failed to create payment session" });
@@ -135,7 +175,6 @@ export async function handleStripeWebhook(req: Request, res: Response) {
   }
 
   try {
-    // Important: Use raw body for webhook signature verification
     const event = stripe!.webhooks.constructEvent(
       req.body,
       sig,
@@ -144,7 +183,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      const { userId, tokenAmount, isCustomAmount } = session.metadata || {};
+      const { userId, tokenAmount, discount, tier } = session.metadata || {};
 
       if (!userId || !tokenAmount) {
         throw new Error("Missing metadata");
@@ -157,7 +196,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
           userId: parseInt(userId),
           amount: parseInt(tokenAmount),
           type: "purchase",
-          packageId: isCustomAmount === "true" ? null : parseInt(tokenAmount),
+          timestamp: new Date()
         });
 
         // Update user's token balance
@@ -170,7 +209,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
           .where(eq(users.id, parseInt(userId)));
       });
 
-      console.log(`Processed payment for user ${userId}, amount: ${tokenAmount} tokens`);
+      console.log(`Processed payment for user ${userId}, amount: ${tokenAmount} tokens, tier: ${tier}, discount: ${discount}%`);
     }
 
     res.json({ received: true });
@@ -190,12 +229,12 @@ export async function createCryptoPayment(req: Request, res: Response) {
     }
 
     if (!amount || amount < 1 || amount > 10000) {
-      return res.status(400).json({ 
-        message: "Token amount must be between 1 and 10,000" 
+      return res.status(400).json({
+        message: "Token amount must be between 1 and 10,000"
       });
     }
 
-    const priceInCents = calculateTokenPrice(amount);
+    const { priceInCents, discount, tier } = calculateTokenPrice(amount);
 
     // For demo purposes, we'll just return a static address
     // In a real implementation, you would:
@@ -207,6 +246,8 @@ export async function createCryptoPayment(req: Request, res: Response) {
       amount: priceInCents / 100, // Convert back to dollars for display
       tokenAmount: amount,
       currency: "ETH",
+      tier,
+      discount
     });
   } catch (error) {
     console.error("Crypto payment error:", error);

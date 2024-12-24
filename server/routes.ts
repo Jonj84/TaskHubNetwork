@@ -6,6 +6,7 @@ import { tokenTransactions, users } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import express from "express";
 import { setupAuth } from "./auth";
+import { createStripeSession, handleStripeWebhook, createCryptoPayment } from "./payments";
 
 // Extend Express Request type to include authenticated user
 interface AuthRequest extends Request {
@@ -28,69 +29,26 @@ export function registerRoutes(app: Express): Server {
   // First create the HTTP server
   const httpServer = createServer(app);
 
+  // Setup WebSocket server after HTTP server is created
+  const { broadcast } = setupWebSocket(httpServer);
+
   // Setup auth first
   setupAuth(app);
 
-  // Setup WebSocket server after HTTP server is created
-  const { broadcast } = setupWebSocket(httpServer);
+  // Stripe webhook endpoint - must be before JSON parsing middleware
+  app.post(
+    "/api/webhooks/stripe",
+    express.raw({ type: "application/json" }),
+    handleStripeWebhook
+  );
 
   // Standard routes with JSON parsing
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
 
-  // Token purchase endpoint
-  app.post("/api/tokens/purchase", requireAuth, async (req: AuthRequest, res: Response) => {
-    try {
-      const { amount } = req.body;
-
-      // Validate the token amount with clear error message
-      if (!amount || isNaN(amount) || amount < 1 || amount > 10000) {
-        return res.status(400).json({ 
-          message: "Please enter a valid token amount between 1 and 10,000" 
-        });
-      }
-
-      const userId = req.user!.id;
-
-      // Record the purchase transaction
-      await db.transaction(async (tx) => {
-        // First create the transaction record
-        await tx.insert(tokenTransactions).values({
-          userId,
-          amount,
-          type: 'purchase',
-          timestamp: new Date(),
-        });
-
-        // Then update user's token balance
-        await tx
-          .update(users)
-          .set({ 
-            tokenBalance: req.user!.tokenBalance + amount,
-            updated_at: new Date(),
-          })
-          .where(eq(users.id, userId));
-      });
-
-      // Get updated user data
-      const [updatedUser] = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-
-      res.json({
-        message: "Tokens purchased successfully",
-        newBalance: updatedUser.tokenBalance,
-      });
-
-    } catch (error: any) {
-      console.error('Error purchasing tokens:', error);
-      res.status(500).json({
-        message: error.message || "Failed to purchase tokens. Please try again later.",
-      });
-    }
-  });
+  // Token purchase endpoints
+  app.post("/api/tokens/purchase", requireAuth, createStripeSession);
+  app.post("/api/tokens/purchase/crypto", requireAuth, createCryptoPayment);
 
   // Transaction history endpoint
   app.get("/api/tokens/history", requireAuth, async (req: AuthRequest, res: Response) => {
