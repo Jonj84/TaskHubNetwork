@@ -14,15 +14,18 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 
 export default function WalletPage() {
   const { user } = useUser();
-  const { transactions, purchaseTokens } = useTokens();
+  const { transactions, purchaseTokens, isLoading: isLoadingTransactions } = useTokens();
   const { toast } = useToast();
   const [amount, setAmount] = useState(0);
+  const [isPurchasing, setIsPurchasing] = useState(false);
 
   const handlePurchase = async () => {
     try {
+      setIsPurchasing(true);
       await purchaseTokens(amount);
       setAmount(0);
       toast({
@@ -35,6 +38,8 @@ export default function WalletPage() {
         title: 'Error',
         description: error.message,
       });
+    } finally {
+      setIsPurchasing(false);
     }
   };
 
@@ -60,9 +65,21 @@ export default function WalletPage() {
               placeholder="Amount"
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
+              disabled={isPurchasing}
             />
-            <Button onClick={handlePurchase} className="w-full">
-              Purchase
+            <Button 
+              onClick={handlePurchase} 
+              className="w-full"
+              disabled={isPurchasing}
+            >
+              {isPurchasing ? (
+                <>
+                  <LoadingSpinner size="sm" className="mr-2" />
+                  Processing...
+                </>
+              ) : (
+                'Purchase'
+              )}
             </Button>
           </CardContent>
         </Card>
@@ -73,28 +90,34 @@ export default function WalletPage() {
           <CardTitle>Transaction History</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Task ID</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.map((tx) => (
-                <TableRow key={tx.id}>
-                  <TableCell>
-                    {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
-                  </TableCell>
-                  <TableCell className="capitalize">{tx.type}</TableCell>
-                  <TableCell>{tx.amount}</TableCell>
-                  <TableCell>{tx.taskId || '-'}</TableCell>
+          {isLoadingTransactions ? (
+            <div className="flex justify-center items-center py-8">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Task ID</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {transactions.map((tx) => (
+                  <TableRow key={tx.id}>
+                    <TableCell>
+                      {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
+                    </TableCell>
+                    <TableCell className="capitalize">{tx.type}</TableCell>
+                    <TableCell>{tx.amount}</TableCell>
+                    <TableCell>{tx.taskId || '-'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>
