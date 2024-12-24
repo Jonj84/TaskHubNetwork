@@ -8,6 +8,7 @@ import WalletPage from './pages/WalletPage';
 import TokenMarketplace from './pages/TokenMarketplace';
 import TokenHistory from './pages/TokenHistory';
 import TransactionExplorer from './pages/TransactionExplorer';
+import LoaderDemo from './pages/LoaderDemo';
 import NavigationBar from './components/NavigationBar';
 import ErrorDashboard from './components/ErrorDashboard';
 
@@ -51,6 +52,7 @@ function App() {
           <Route path="/marketplace" component={TokenMarketplace} />
           <Route path="/history" component={TokenHistory} />
           <Route path="/explorer" component={TransactionExplorer} />
+          <Route path="/loader-demo" component={LoaderDemo} />
           <Route>
             <div className="flex items-center justify-center min-h-[60vh]">
               <p className="text-muted-foreground">404 - Page not found</p>
