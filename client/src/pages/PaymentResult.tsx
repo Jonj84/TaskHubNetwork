@@ -26,7 +26,7 @@ export default function PaymentResult() {
           }
 
           const data = await response.json();
-          
+
           // Invalidate user data to refresh token balance
           queryClient.invalidateQueries({ queryKey: ['/api/user'] });
 
@@ -34,6 +34,11 @@ export default function PaymentResult() {
             title: 'Payment Successful',
             description: `Successfully purchased ${data.tokenAmount} tokens!`,
           });
+
+          // Redirect back to marketplace after a short delay
+          setTimeout(() => {
+            setLocation('/marketplace');
+          }, 2000);
         } catch (error) {
           console.error('Payment verification failed:', error);
           toast({
@@ -46,7 +51,7 @@ export default function PaymentResult() {
     };
 
     verifyPayment();
-  }, [isSuccess, sessionId, toast]);
+  }, [isSuccess, sessionId, toast, setLocation]);
 
   return (
     <div className="container mx-auto py-12 px-4">
@@ -71,10 +76,10 @@ export default function PaymentResult() {
           )}
 
           <Button
-            onClick={() => setLocation('/')}
+            onClick={() => setLocation('/marketplace')}
             className="mt-6"
           >
-            Return to Dashboard
+            Return to Marketplace
           </Button>
         </CardContent>
       </Card>

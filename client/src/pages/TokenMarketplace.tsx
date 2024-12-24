@@ -105,19 +105,10 @@ export default function TokenMarketplace() {
         throw new Error('No checkout URL received from server');
       }
 
-      console.log('Opening Stripe checkout URL:', checkoutUrl);
+      console.log('Redirecting to Stripe checkout:', checkoutUrl);
 
-      // Open Stripe checkout in a new window
-      const checkoutWindow = window.open(checkoutUrl, '_blank');
-
-      if (!checkoutWindow) {
-        throw new Error('Failed to open checkout window. Please allow popups for this site.');
-      }
-
-      toast({
-        title: 'Checkout Opened',
-        description: 'Complete your purchase in the new window.',
-      });
+      // Instead of opening in a new window, redirect in the same window
+      window.location.href = checkoutUrl;
 
     } catch (error: any) {
       console.error('[Token purchase failed] Error:', error);
