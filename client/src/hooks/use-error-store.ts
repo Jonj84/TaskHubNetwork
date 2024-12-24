@@ -41,7 +41,9 @@ export const useErrorStore = create<ErrorStore>((set) => ({
 // Custom hook for WebSocket connection
 export function useErrorWebSocket() {
   useEffect(() => {
-    const ws = new WebSocket(`ws://${window.location.host}/api/errors`);
+    // Determine the WebSocket protocol based on the page protocol
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/errors`);
 
     ws.onmessage = (event) => {
       try {
