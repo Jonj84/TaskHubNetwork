@@ -59,12 +59,13 @@ export default function PurchaseTokensModal() {
 
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: { sessionId: string }) => { // Assuming the API returns a sessionId
+      window.open(data.sessionId, '_blank'); // Open Stripe checkout in a new window
       queryClient.invalidateQueries({ queryKey: ['/api/user'] });
       setOpen(false);
       toast({
         title: 'Success',
-        description: 'Tokens purchased successfully',
+        description: 'Redirecting to Stripe Checkout...', // Inform the user
       });
     },
     onError: (error: Error) => {
