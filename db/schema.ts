@@ -11,6 +11,18 @@ export const users = pgTable("users", {
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const tokenPackages = pgTable("token_packages", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  tokenAmount: integer("token_amount").notNull(),
+  price: integer("price").notNull(), // Price in credits/points
+  features: jsonb("features").notNull(),
+  isPopular: boolean("is_popular").default(false),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -35,6 +47,7 @@ export const tokenTransactions = pgTable("token_transactions", {
   type: text("type", { 
     enum: ["reward", "purchase", "escrow", "release"] 
   }).notNull(),
+  packageId: integer("package_id").references(() => tokenPackages.id),
   taskId: integer("task_id").references(() => tasks.id),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
@@ -68,6 +81,10 @@ export const tokenTransactionsRelations = relations(tokenTransactions, ({ one })
     fields: [tokenTransactions.taskId],
     references: [tasks.id],
   }),
+  package: one(tokenPackages, {
+    fields: [tokenTransactions.packageId],
+    references: [tokenPackages.id],
+  }),
 }));
 
 // Schemas for validation
@@ -77,6 +94,8 @@ export const insertTaskSchema = createInsertSchema(tasks);
 export const selectTaskSchema = createSelectSchema(tasks);
 export const insertTokenTransactionSchema = createInsertSchema(tokenTransactions);
 export const selectTokenTransactionSchema = createSelectSchema(tokenTransactions);
+export const insertTokenPackageSchema = createInsertSchema(tokenPackages);
+export const selectTokenPackageSchema = createSelectSchema(tokenPackages);
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -85,3 +104,5 @@ export type Task = typeof tasks.$inferSelect;
 export type InsertTask = typeof tasks.$inferInsert;
 export type TokenTransaction = typeof tokenTransactions.$inferSelect;
 export type InsertTokenTransaction = typeof tokenTransactions.$inferInsert;
+export type TokenPackage = typeof tokenPackages.$inferSelect;
+export type InsertTokenPackage = typeof tokenPackages.$inferInsert;

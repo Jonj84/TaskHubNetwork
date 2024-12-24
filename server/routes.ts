@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { setupWebSocket } from "./ws";
 import { db } from "@db";
-import { tasks, tokenTransactions, users } from "@db/schema";
+import { tasks, tokenTransactions, users, tokenPackages } from "@db/schema";
 import { desc, eq } from "drizzle-orm";
 import { insertTaskSchema } from "@db/schema";
 
@@ -101,6 +101,91 @@ export function registerRoutes(app: Express): Server {
       res.status(500).json({
         message: "Failed to purchase tokens",
       });
+    }
+  });
+
+  // Token package endpoints
+  app.get("/api/tokens/packages", async (_req, res: Response) => {
+    try {
+      const packages = await db
+        .select()
+        .from(tokenPackages)
+        .orderBy(tokenPackages.price);
+
+      res.json(packages);
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error fetching token packages:', err);
+
+      broadcast('ERROR_EVENT', {
+        message: err.message || 'Failed to fetch token packages',
+        type: 'error',
+        source: '/api/tokens/packages',
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      });
+
+      res.status(500).json({ message: "Failed to fetch token packages" });
+    }
+  });
+
+  app.post("/api/tokens/packages/:id/purchase", requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const packageId = parseInt(req.params.id);
+      const userId = req.user!.id;
+
+      const [tokenPackage] = await db
+        .select()
+        .from(tokenPackages)
+        .where(eq(tokenPackages.id, packageId))
+        .limit(1);
+
+      if (!tokenPackage) {
+        return res.status(404).json({ message: "Token package not found" });
+      }
+
+      // Record the purchase transaction and update balance
+      await db.transaction(async (tx) => {
+        // Create transaction record
+        await tx.insert(tokenTransactions).values({
+          userId,
+          amount: tokenPackage.tokenAmount,
+          type: 'purchase',
+          packageId,
+        });
+
+        // Update user's token balance
+        await tx
+          .update(users)
+          .set({
+            tokenBalance: req.user!.tokenBalance + tokenPackage.tokenAmount,
+            updated_at: new Date(),
+          })
+          .where(eq(users.id, userId));
+      });
+
+      // Get updated user data
+      const [updatedUser] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      res.json({
+        message: "Token package purchased successfully",
+        newBalance: updatedUser.tokenBalance,
+      });
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error purchasing token package:', err);
+
+      broadcast('ERROR_EVENT', {
+        message: err.message || 'Failed to purchase token package',
+        type: 'error',
+        source: '/api/tokens/packages/:id/purchase',
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      });
+
+      res.status(500).json({ message: "Failed to purchase token package" });
     }
   });
 

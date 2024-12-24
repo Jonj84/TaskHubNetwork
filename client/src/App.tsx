@@ -5,6 +5,7 @@ import AuthPage from './pages/AuthPage';
 import DashboardPage from './pages/DashboardPage';
 import TasksPage from './pages/TasksPage';
 import WalletPage from './pages/WalletPage';
+import TokenMarketplace from './pages/TokenMarketplace';
 import TransactionExplorer from './pages/TransactionExplorer';
 import NavigationBar from './components/NavigationBar';
 import ErrorDashboard from './components/ErrorDashboard';
@@ -32,6 +33,7 @@ function App() {
           <Route path="/" component={DashboardPage} />
           <Route path="/tasks" component={TasksPage} />
           <Route path="/wallet" component={WalletPage} />
+          <Route path="/marketplace" component={TokenMarketplace} />
           <Route path="/explorer" component={TransactionExplorer} />
           <Route>404 - Not Found</Route>
         </Switch>
