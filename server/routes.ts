@@ -3,11 +3,12 @@ import { createServer, type Server } from "http";
 import { setupWebSocket } from "./ws";
 import { db } from "@db";
 import { tasks, tokenTransactions, users, tokenPackages } from "@db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { insertTaskSchema } from "@db/schema";
 import { createStripeSession, handleStripeWebhook, createCryptoPayment } from "./payments";
 import express from "express";
 import { validatePackageMiddleware } from './middleware/packageValidation';
+import { avg, count, sum } from "drizzle-orm";
 
 // Extend Express Request type to include authenticated user
 interface AuthRequest extends Request {
@@ -299,6 +300,57 @@ export function registerRoutes(app: Express): Server {
       });
 
       res.status(500).json({ message: "Failed to purchase token package" });
+    }
+  });
+
+  // Token transaction history endpoint
+  app.get("/api/tokens/history", requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const userId = req.user!.id;
+
+      // Get all transactions for the user
+      const transactions = await db
+        .select({
+          id: tokenTransactions.id,
+          amount: tokenTransactions.amount,
+          type: tokenTransactions.type,
+          timestamp: tokenTransactions.timestamp,
+          packageId: tokenTransactions.packageId,
+        })
+        .from(tokenTransactions)
+        .where(eq(tokenTransactions.userId, userId))
+        .orderBy(desc(tokenTransactions.timestamp));
+
+      // Get aggregated insights
+      const [insights] = await db
+        .select({
+          totalSpent: sum(tokenTransactions.amount).mapWith(Number),
+          totalTransactions: count().mapWith(Number),
+          avgPurchaseSize: avg(tokenTransactions.amount).mapWith(Number),
+        })
+        .from(tokenTransactions)
+        .where(sql`${tokenTransactions.userId} = ${userId} AND ${tokenTransactions.type} = 'purchase'`);
+
+      res.json({
+        transactions,
+        insights: {
+          totalSpent: insights.totalSpent || 0,
+          totalTransactions: insights.totalTransactions || 0,
+          avgPurchaseSize: Math.round(insights.avgPurchaseSize || 0),
+        },
+      });
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error fetching token history:', err);
+
+      broadcast('ERROR_EVENT', {
+        message: err.message || 'Failed to fetch token history',
+        type: 'error',
+        source: '/api/tokens/history',
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      });
+
+      res.status(500).json({ message: "Failed to fetch token history" });
     }
   });
 
