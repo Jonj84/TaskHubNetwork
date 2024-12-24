@@ -1,10 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { setupAuth } from "./auth";
 import { setupWebSocket } from "./ws";
 import { db } from "@db";
-import { tasks, tokenTransactions, users } from "@db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { tasks } from "@db/schema";
+import { desc } from "drizzle-orm";
 
 // Extend Express Request type to include authenticated user
 interface AuthRequest extends Request {
@@ -19,9 +18,6 @@ export function registerRoutes(app: Express): Server {
   // First create the HTTP server
   const httpServer = createServer(app);
 
-  // Then setup authentication
-  setupAuth(app);
-
   // Setup WebSocket server after HTTP server is created
   const { broadcast } = setupWebSocket(httpServer);
 
@@ -32,8 +28,6 @@ export function registerRoutes(app: Express): Server {
     }
     next();
   };
-
-  // User routes are handled by auth.ts
 
   // Task routes
   app.get("/api/tasks", requireAuth, async (req: AuthRequest, res: Response) => {

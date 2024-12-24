@@ -11,16 +11,11 @@ export function useUser() {
 
   const { data: user, isLoading } = useQuery<User>({
     queryKey: ['/api/user'],
+    staleTime: Infinity, // Never consider data stale
     gcTime: 1000 * 60 * 60, // Cache for 1 hour
-    staleTime: 30000, // Consider data fresh for 30 seconds
     refetchOnWindowFocus: false,
     refetchOnMount: false,
-    retry: (failureCount, error: any) => {
-      if (error?.message?.includes('401')) {
-        return false;
-      }
-      return failureCount < 3;
-    },
+    retry: false, // Don't retry failed requests
   });
 
   const loginMutation = useMutation({
@@ -75,7 +70,8 @@ export function useUser() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+      // Clear all queries after logout
+      queryClient.clear();
     },
   });
 

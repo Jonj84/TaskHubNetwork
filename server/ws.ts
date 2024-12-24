@@ -39,15 +39,24 @@ export function setupWebSocket(server: Server) {
     // Add new client to the set
     clients.add(ws);
 
+    // Keep connection alive with ping/pong
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 30000);
+
     // Handle client disconnect
     ws.on("close", () => {
       clients.delete(ws);
+      clearInterval(pingInterval);
     });
 
     // Handle client errors
     ws.on("error", (error) => {
       console.error("WebSocket error:", error);
       clients.delete(ws);
+      clearInterval(pingInterval);
       ws.terminate();
     });
 

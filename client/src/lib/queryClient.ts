@@ -9,6 +9,11 @@ export const queryClient = new QueryClient({
         });
 
         if (!res.ok) {
+          if (res.status === 401) {
+            // Don't throw on auth errors, just return null
+            return null;
+          }
+
           if (res.status >= 500) {
             throw new Error(`${res.status}: ${res.statusText}`);
           }
@@ -20,8 +25,8 @@ export const queryClient = new QueryClient({
       },
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      staleTime: Infinity, // Never consider data stale
+      retry: false, // Don't retry failed requests
     },
     mutations: {
       retry: false,
