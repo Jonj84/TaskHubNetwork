@@ -4,15 +4,20 @@ import { useToast } from '@/hooks/use-toast';
 export interface TokenTransaction {
   id: number;
   amount: number;
-  type: 'purchase' | 'spend';
+  type: 'purchase' | 'spend' | 'reward';
   timestamp: string;
+}
+
+interface PurchaseResponse {
+  message: string;
+  newBalance: number;
 }
 
 export function useTokens() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const purchaseTokensMutation = useMutation({
+  const purchaseTokensMutation = useMutation<PurchaseResponse, Error, number>({
     mutationFn: async (amount: number) => {
       const response = await fetch('/api/tokens/purchase', {
         method: 'POST',
@@ -22,8 +27,7 @@ export function useTokens() {
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error);
+        throw new Error(await response.text());
       }
 
       return response.json();

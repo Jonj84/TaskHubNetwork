@@ -2,11 +2,10 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { setupWebSocket } from "./ws";
 import { db } from "@db";
-import { tasks, tokenTransactions, users } from "@db/schema";
+import { tokenTransactions, users } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import express from "express";
 import { setupAuth } from "./auth";
-import { insertTaskSchema } from "@db/schema";
 
 // Extend Express Request type to include authenticated user
 interface AuthRequest extends Request {
@@ -44,21 +43,26 @@ export function registerRoutes(app: Express): Server {
     try {
       const { amount } = req.body;
 
-      if (!amount || amount < 1 || amount > 1000) {
-        return res.status(400).json({ message: "Invalid token amount" });
+      // Validate the token amount with clear error message
+      if (!amount || isNaN(amount) || amount < 1 || amount > 10000) {
+        return res.status(400).json({ 
+          message: "Please enter a valid token amount between 1 and 10,000" 
+        });
       }
 
       const userId = req.user!.id;
 
       // Record the purchase transaction
       await db.transaction(async (tx) => {
+        // First create the transaction record
         await tx.insert(tokenTransactions).values({
           userId,
           amount,
           type: 'purchase',
+          timestamp: new Date(),
         });
 
-        // Update user's token balance
+        // Then update user's token balance
         await tx
           .update(users)
           .set({ 
@@ -79,11 +83,11 @@ export function registerRoutes(app: Express): Server {
         message: "Tokens purchased successfully",
         newBalance: updatedUser.tokenBalance,
       });
-    } catch (error: unknown) {
-      const err = error as Error;
-      console.error('Error purchasing tokens:', err);
+
+    } catch (error: any) {
+      console.error('Error purchasing tokens:', error);
       res.status(500).json({
-        message: "Failed to purchase tokens",
+        message: error.message || "Failed to purchase tokens. Please try again later.",
       });
     }
   });
@@ -106,65 +110,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Task routes
-  app.get("/api/tasks", requireAuth, async (_req: AuthRequest, res: Response) => {
-    try {
-      const allTasks = await db.query.tasks.findMany({
-        orderBy: desc(tasks.created_at),
-      });
-      res.json(allTasks);
-    } catch (error: unknown) {
-      const err = error as Error;
-      console.error('Error fetching tasks:', err);
-      res.status(500).json({ message: "Failed to fetch tasks" });
-    }
-  });
-
-  // Create task endpoint
-  app.post("/api/tasks", requireAuth, async (req: AuthRequest, res: Response) => {
-    try {
-      // Validate the request body
-      const validatedData = insertTaskSchema.parse({
-        ...req.body,
-        creatorId: req.user!.id,
-        status: "open",
-      });
-
-      // Check if user has enough tokens
-      if (req.user!.tokenBalance < validatedData.reward) {
-        return res.status(400).json({
-          message: "Insufficient token balance to create task",
-        });
-      }
-
-      // Create the task
-      const [newTask] = await db
-        .insert(tasks)
-        .values(validatedData)
-        .returning();
-
-      // Send the created task back
-      res.status(200).json(newTask);
-    } catch (error: unknown) {
-      const err = error as Error;
-      console.error('Error creating task:', err);
-
-      if ('errors' in err) {
-        // Validation error
-        return res.status(400).json({
-          message: "Invalid task data",
-          errors: err.errors,
-        });
-      }
-
-      res.status(500).json({
-        message: "Failed to create task",
-      });
-    }
-  });
-
   // Error handling middleware
-  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     console.error('Error:', err);
 
     // Broadcast error to all connected clients
@@ -179,7 +126,6 @@ export function registerRoutes(app: Express): Server {
       message: err.message || 'Internal Server Error',
     });
   });
-
 
   return httpServer;
 }

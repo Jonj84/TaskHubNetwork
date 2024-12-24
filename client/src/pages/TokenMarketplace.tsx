@@ -12,7 +12,7 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { BlockchainLoader } from '@/components/BlockchainLoader';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function TokenMarketplace() {
   const { toast } = useToast();
@@ -20,7 +20,7 @@ export default function TokenMarketplace() {
   const [isProcessing, setIsProcessing] = useState(false);
   const { purchaseTokens } = useTokens();
 
-  // Calculate price with optional volume discounts
+  // Calculate price with volume discounts
   const calculatePrice = (amount: number) => {
     const basePrice = amount * 0.1; // $0.10 per token
     let discount = 0;
@@ -41,18 +41,29 @@ export default function TokenMarketplace() {
   const pricing = calculatePrice(tokenAmount);
 
   const handlePurchase = async () => {
+    // Client-side validation
+    if (!tokenAmount || isNaN(tokenAmount) || tokenAmount < 1 || tokenAmount > 10000) {
+      toast({
+        variant: 'destructive',
+        title: 'Invalid Amount',
+        description: 'Please enter a valid amount between 1 and 10,000 tokens',
+      });
+      return;
+    }
+
     try {
       setIsProcessing(true);
-      await purchaseTokens(tokenAmount);
+      const result = await purchaseTokens(tokenAmount);
+
       toast({
         title: 'Success',
-        description: `Successfully purchased ${tokenAmount} tokens`,
+        description: `Successfully purchased ${tokenAmount} tokens. New balance: ${result.newBalance}`,
       });
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
-        description: error.message,
+        description: error.message || 'Failed to purchase tokens. Please try again.',
       });
     } finally {
       setIsProcessing(false);
@@ -72,7 +83,7 @@ export default function TokenMarketplace() {
         <CardHeader>
           <CardTitle>Token Amount</CardTitle>
           <CardDescription>
-            Adjust the slider or enter a value to select your desired amount of tokens
+            Adjust the slider or enter a value to select your desired amount of tokens (1-10,000)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -80,7 +91,7 @@ export default function TokenMarketplace() {
             <Slider
               value={[tokenAmount]}
               onValueChange={(value) => setTokenAmount(value[0])}
-              max={2000}
+              max={10000}
               min={1}
               step={1}
               className="flex-1"
@@ -91,7 +102,7 @@ export default function TokenMarketplace() {
               onChange={(e) => setTokenAmount(Number(e.target.value))}
               className="w-24"
               min={1}
-              max={2000}
+              max={10000}
             />
           </div>
 
@@ -106,17 +117,19 @@ export default function TokenMarketplace() {
               <span>${pricing.basePrice.toFixed(2)}</span>
             </div>
 
-            {pricing.discount > 0 && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="flex justify-between text-sm text-green-500"
-              >
-                <span>Volume Discount:</span>
-                <span>-{pricing.discount}%</span>
-              </motion.div>
-            )}
+            <AnimatePresence>
+              {pricing.discount > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="flex justify-between text-sm text-green-500"
+                >
+                  <span>Volume Discount:</span>
+                  <span>-{pricing.discount}%</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <div className="border-t pt-2 flex justify-between font-medium">
               <span>Final Price:</span>
@@ -126,7 +139,7 @@ export default function TokenMarketplace() {
 
           <Button 
             onClick={handlePurchase}
-            disabled={isProcessing || tokenAmount < 1}
+            disabled={isProcessing || !tokenAmount || tokenAmount < 1 || tokenAmount > 10000}
             className="w-full relative overflow-hidden"
           >
             {isProcessing ? (
