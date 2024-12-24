@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { useEffect } from 'react';
+import { useToast } from '@/hooks/use-toast';
 
 interface ErrorEvent {
   id: string;
@@ -40,28 +41,71 @@ export const useErrorStore = create<ErrorStore>((set) => ({
 
 // Custom hook for WebSocket connection
 export function useErrorWebSocket() {
-  useEffect(() => {
-    // Determine the WebSocket protocol based on the page protocol
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/errors`);
+  const { toast } = useToast();
 
-    ws.onmessage = (event) => {
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+
+    const connect = () => {
       try {
-        const error = JSON.parse(event.data);
-        useErrorStore.getState().addError(error);
-      } catch (e) {
-        console.error('Failed to parse error message:', e);
+        // Determine protocol based on current page protocol
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/errors`;
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          console.log('Error tracking WebSocket connected');
+          reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const error = JSON.parse(event.data);
+            useErrorStore.getState().addError(error);
+          } catch (e) {
+            console.error('Failed to parse error message:', e);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          // Only show toast on first error
+          if (reconnectAttempts === 0) {
+            toast({
+              variant: 'destructive',
+              title: 'Error Tracking Connection Failed',
+              description: 'Will attempt to reconnect automatically',
+            });
+          }
+        };
+
+        ws.onclose = () => {
+          console.log('WebSocket connection closed');
+          // Attempt to reconnect if we haven't exceeded max attempts
+          if (reconnectAttempts < maxReconnectAttempts) {
+            reconnectAttempts++;
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+            reconnectTimeout = setTimeout(connect, delay);
+          }
+        };
+      } catch (error) {
+        console.error('Failed to establish WebSocket connection:', error);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
+    connect();
 
-    // Cleanup on unmount
+    // Cleanup function
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws) {
         ws.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
       }
     };
   }, []); // Empty dependency array means this effect runs once on mount

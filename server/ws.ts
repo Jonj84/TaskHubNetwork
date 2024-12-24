@@ -20,15 +20,20 @@ export function setupWebSocket(server: Server) {
   // Handle upgrade manually to filter out Vite HMR
   server.on('upgrade', (request, socket, head) => {
     try {
+      const pathname = new URL(request.url!, `http://${request.headers.host}`).pathname;
       const protocol = request.headers['sec-websocket-protocol'];
+
       // Skip Vite HMR connections
       if (protocol === 'vite-hmr') {
         return;
       }
 
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
-      });
+      // Only handle /api/errors endpoint
+      if (pathname === '/api/errors') {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          wss.emit('connection', ws, request);
+        });
+      }
     } catch (error) {
       console.error('WebSocket upgrade error:', error);
       socket.destroy();
@@ -38,6 +43,7 @@ export function setupWebSocket(server: Server) {
   wss.on("connection", (ws) => {
     // Add new client to the set
     clients.add(ws);
+    console.log('New WebSocket client connected');
 
     // Keep connection alive with ping/pong
     const pingInterval = setInterval(() => {
@@ -64,6 +70,7 @@ export function setupWebSocket(server: Server) {
     ws.on("close", () => {
       clients.delete(ws);
       clearInterval(pingInterval);
+      console.log('WebSocket client disconnected');
     });
 
     // Handle client errors

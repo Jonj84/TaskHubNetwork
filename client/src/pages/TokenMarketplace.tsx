@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,45 +12,22 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Check, Star } from 'lucide-react';
+import PaymentFlow from '@/components/PaymentFlow';
 import type { TokenPackage } from '@db/schema';
 
 export default function TokenMarketplace() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const [selectedPackage, setSelectedPackage] = useState<TokenPackage | null>(null);
+  const [paymentFlowOpen, setPaymentFlowOpen] = useState(false);
 
   const { data: packages = [], isLoading } = useQuery<TokenPackage[]>({
     queryKey: ['/api/tokens/packages'],
   });
 
-  const purchasePackageMutation = useMutation({
-    mutationFn: async (packageId: number) => {
-      const response = await fetch(`/api/tokens/packages/${packageId}/purchase`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-      toast({
-        title: 'Success',
-        description: 'Token package purchased successfully',
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Failed to purchase token package',
-      });
-    },
-  });
+  const handlePurchase = (pkg: TokenPackage) => {
+    setSelectedPackage(pkg);
+    setPaymentFlowOpen(true);
+  };
 
   if (isLoading) {
     return (
@@ -91,7 +69,7 @@ export default function TokenMarketplace() {
                 <span className="text-4xl font-bold">{pkg.tokenAmount}</span>
                 <span className="text-muted-foreground"> tokens</span>
                 <p className="text-2xl font-semibold mt-2">
-                  {pkg.price} credits
+                  ${pkg.price}
                 </p>
               </div>
               <ul className="space-y-2">
@@ -106,22 +84,23 @@ export default function TokenMarketplace() {
             <CardFooter>
               <Button
                 className="w-full"
-                onClick={() => purchasePackageMutation.mutate(pkg.id)}
-                disabled={purchasePackageMutation.isPending}
+                onClick={() => handlePurchase(pkg)}
               >
-                {purchasePackageMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  'Purchase Package'
-                )}
+                Purchase Package
               </Button>
             </CardFooter>
           </Card>
         ))}
       </div>
+
+      {selectedPackage && (
+        <PaymentFlow
+          open={paymentFlowOpen}
+          onOpenChange={setPaymentFlowOpen}
+          amount={selectedPackage.price}
+          packageId={selectedPackage.id}
+        />
+      )}
     </div>
   );
 }
