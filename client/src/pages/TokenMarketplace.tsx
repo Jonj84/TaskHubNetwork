@@ -31,7 +31,6 @@ export default function TokenMarketplace() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [pricing, setPricing] = useState<PriceInfo>({ basePrice: 10, discount: 0, finalPrice: 10 });
 
-  // Calculate price with volume discounts
   useEffect(() => {
     const calculatePrice = async () => {
       try {
@@ -85,40 +84,58 @@ export default function TokenMarketplace() {
         throw new Error(await response.text());
       }
 
-      // Get both sessionId and url in a single read
       const { sessionId, url } = await response.json();
 
-      // Redirect to Stripe checkout using the provided URL
-      if (url) {
-        window.location.href = url;
-      } else {
-        // Fallback to using Stripe.js redirect if no URL is provided
-        const stripe = await stripePromise;
-        if (!stripe) {
-          throw new Error('Failed to load Stripe');
-        }
+      // Handle the redirect with a timeout
+      const redirectWithTimeout = () => {
+        const timeout = setTimeout(() => {
+          toast({
+            variant: 'destructive',
+            title: 'Redirect Timeout',
+            description: 'Failed to redirect to Stripe. Please try again.',
+          });
+          setIsProcessing(false);
+        }, 5000); // 5 second timeout
 
-        const { error } = await stripe.redirectToCheckout({ sessionId });
-        if (error) {
-          throw error;
+        // If URL is provided, use it directly
+        if (url) {
+          // Ensure URL is from trusted domain
+          if (!url.startsWith('https://checkout.stripe.com')) {
+            throw new Error('Invalid checkout URL');
+          }
+          window.location.assign(url);
+        } else {
+          // Fallback to Stripe.js redirect
+          stripePromise.then(stripe => {
+            if (!stripe) {
+              throw new Error('Failed to load Stripe');
+            }
+            return stripe.redirectToCheckout({ sessionId });
+          }).then(({ error }) => {
+            if (error) {
+              throw error;
+            }
+            clearTimeout(timeout);
+          }).catch(error => {
+            clearTimeout(timeout);
+            throw error;
+          });
         }
-      }
+      };
+
+      redirectWithTimeout();
     } catch (error: any) {
-      // Log error with context
       await logErrorToServer(error, 'Token purchase failed');
-
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
         description: error.message || 'Failed to process payment',
       });
-    } finally {
       setIsProcessing(false);
     }
   };
 
   const handleAmountChange = (value: number) => {
-    // Clamp value between 1 and 10000
     const clampedValue = Math.min(Math.max(Math.round(value), 1), 10000);
     setTokenAmount(clampedValue);
   };
@@ -239,7 +256,6 @@ export default function TokenMarketplace() {
             )}
           </Button>
 
-          {/* Validation message */}
           {!isValidAmount(tokenAmount) && (
             <div className="flex items-center gap-2 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
