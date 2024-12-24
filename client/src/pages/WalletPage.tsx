@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useTokens } from '../hooks/use-tokens';
 import { useUser } from '../hooks/use-user';
+import { useBlockchain } from '../hooks/use-blockchain';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,35 +12,47 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle } from "lucide-react";
+import { format } from 'date-fns';
 
 export default function WalletPage() {
   const { user } = useUser();
-  const { transactions, purchaseTokens, isLoading: isLoadingTransactions } = useTokens();
-  const { toast } = useToast();
+  const { transactions, createTransaction, getBalance, isLoading } = useBlockchain();
   const [amount, setAmount] = useState(0);
-  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [recipient, setRecipient] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const handlePurchase = async () => {
+  const balance = user ? getBalance(user.username) : 0;
+
+  const handleTransaction = async () => {
+    if (!user) {
+      setError("Please login first");
+      return;
+    }
+
     if (amount <= 0) {
       setError("Please enter a valid amount");
       return;
     }
 
+    if (!recipient) {
+      setError("Please enter a recipient address");
+      return;
+    }
+
     try {
       setError(null);
-      setIsPurchasing(true);
-      await purchaseTokens(amount);
+      setIsProcessing(true);
+      await createTransaction({ to: recipient, amount });
       setAmount(0);
+      setRecipient('');
     } catch (error: any) {
       setError(error.message);
     } finally {
-      setIsPurchasing(false);
+      setIsProcessing(false);
     }
   };
 
@@ -52,13 +64,13 @@ export default function WalletPage() {
             <CardTitle>Token Balance</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{user?.tokenBalance}</p>
+            <p className="text-3xl font-bold">{balance}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Purchase Tokens</CardTitle>
+            <CardTitle>Send Tokens</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {error && (
@@ -69,6 +81,15 @@ export default function WalletPage() {
               </Alert>
             )}
             <Input
+              placeholder="Recipient Address"
+              value={recipient}
+              onChange={(e) => {
+                setError(null);
+                setRecipient(e.target.value);
+              }}
+              disabled={isProcessing}
+            />
+            <Input
               type="number"
               placeholder="Amount"
               value={amount}
@@ -76,21 +97,21 @@ export default function WalletPage() {
                 setError(null);
                 setAmount(Number(e.target.value));
               }}
-              disabled={isPurchasing}
+              disabled={isProcessing}
               min="0"
             />
             <Button 
-              onClick={handlePurchase} 
+              onClick={handleTransaction} 
               className="w-full"
-              disabled={isPurchasing || amount <= 0}
+              disabled={isProcessing || amount <= 0 || !recipient}
             >
-              {isPurchasing ? (
+              {isProcessing ? (
                 <>
                   <LoadingSpinner size="sm" className="mr-2" />
                   Processing Transaction...
                 </>
               ) : (
-                'Purchase Tokens'
+                'Send Tokens'
               )}
             </Button>
           </CardContent>
@@ -102,7 +123,7 @@ export default function WalletPage() {
           <CardTitle>Transaction History</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoadingTransactions ? (
+          {isLoading ? (
             <div className="flex justify-center items-center py-8">
               <LoadingSpinner size="lg" />
             </div>
@@ -115,20 +136,20 @@ export default function WalletPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
+                  <TableHead>From</TableHead>
+                  <TableHead>To</TableHead>
                   <TableHead>Amount</TableHead>
-                  <TableHead>Task ID</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transactions.map((tx) => (
-                  <TableRow key={tx.id}>
+                {transactions.map((tx, index) => (
+                  <TableRow key={index}>
                     <TableCell>
                       {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
                     </TableCell>
-                    <TableCell className="capitalize">{tx.type}</TableCell>
+                    <TableCell>{tx.from}</TableCell>
+                    <TableCell>{tx.to}</TableCell>
                     <TableCell>{tx.amount}</TableCell>
-                    <TableCell>{tx.taskId || '-'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
