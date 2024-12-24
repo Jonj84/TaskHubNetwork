@@ -25,6 +25,29 @@ const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
   next();
 };
 
+function calculateTokenPrice(amount: number): {
+  basePrice: number;
+  discount: number;
+  finalPrice: number;
+} {
+  const basePrice = amount; // $1 per token
+  let discount = 0;
+
+  if (amount >= 1000) {
+    discount = 20; // 20% discount
+  } else if (amount >= 500) {
+    discount = 10; // 10% discount
+  }
+
+  const finalPrice = basePrice * (1 - discount / 100);
+
+  return {
+    basePrice,
+    discount,
+    finalPrice,
+  };
+}
+
 export function registerRoutes(app: Express): Server {
   // First create the HTTP server
   const httpServer = createServer(app);
@@ -45,6 +68,27 @@ export function registerRoutes(app: Express): Server {
 
   // Setup auth after body parsing middleware
   setupAuth(app);
+
+  // Price calculation endpoint
+  app.post("/api/tokens/calculate-price", requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { amount } = req.body;
+
+      if (!amount || isNaN(amount) || amount < 1 || amount > 10000) {
+        return res.status(400).json({
+          message: "Token amount must be between 1 and 10,000"
+        });
+      }
+
+      const pricing = calculateTokenPrice(amount);
+      res.json(pricing);
+    } catch (error: any) {
+      console.error('Price calculation error:', error);
+      res.status(500).json({ 
+        message: error.message || 'Failed to calculate price' 
+      });
+    }
+  });
 
   // Token purchase endpoints
   app.post("/api/tokens/purchase", requireAuth, async (req: AuthRequest, res: Response) => {

@@ -9,58 +9,42 @@ if (!process.env.STRIPE_SECRET_KEY) {
 }
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-12-18"
+  apiVersion: "2023-10-16" // Latest stable version from Stripe docs
 });
 
-// Define pricing tiers
-const PRICING_TIERS = {
-  base: {
-    name: "Base Tier",
-    pricePerToken: 100, // $1.00 per token in cents
+// Define base prices for tokens
+const BASE_PRICE = 100; // $1.00 per token in cents
+
+// Define pricing tiers products
+const TIER_PRODUCTS = {
+  standard: {
+    name: "Standard Token Package",
+    description: "1-499 tokens, no discount",
+    multiplier: 1, // No discount
     minTokens: 1,
-    maxTokens: 499,
-    discount: 0
+    maxTokens: 499
   },
   silver: {
-    name: "Silver Tier",
-    pricePerToken: 90, // $0.90 per token in cents
+    name: "Silver Token Package",
+    description: "500-999 tokens, 10% discount",
+    multiplier: 0.9, // 10% discount
     minTokens: 500,
-    maxTokens: 999,
-    discount: 10
+    maxTokens: 999
   },
   gold: {
-    name: "Gold Tier",
-    pricePerToken: 80, // $0.80 per token in cents
+    name: "Gold Token Package",
+    description: "1000+ tokens, 20% discount",
+    multiplier: 0.8, // 20% discount
     minTokens: 1000,
-    maxTokens: Infinity,
-    discount: 20
+    maxTokens: Infinity
   }
 };
 
-// Calculate price based on token amount and volume discounts
-function calculateTokenPrice(amount: number): {
-  priceInCents: number;
-  discount: number;
-  tier: string;
-} {
-  let tier: keyof typeof PRICING_TIERS;
-
-  if (amount >= PRICING_TIERS.gold.minTokens) {
-    tier = 'gold';
-  } else if (amount >= PRICING_TIERS.silver.minTokens) {
-    tier = 'silver';
-  } else {
-    tier = 'base';
-  }
-
-  const { pricePerToken, discount } = PRICING_TIERS[tier];
-  const priceInCents = Math.floor(amount * pricePerToken * (1 - discount / 100));
-
-  return { 
-    priceInCents,
-    discount,
-    tier
-  };
+// Get the appropriate tier for token amount
+function getTierForAmount(amount: number) {
+  if (amount >= TIER_PRODUCTS.gold.minTokens) return 'gold';
+  if (amount >= TIER_PRODUCTS.silver.minTokens) return 'silver';
+  return 'standard';
 }
 
 export async function createStripeSession(req: Request, res: Response) {
@@ -79,13 +63,18 @@ export async function createStripeSession(req: Request, res: Response) {
       });
     }
 
-    // Calculate price with volume discount
-    const { priceInCents, discount, tier } = calculateTokenPrice(amount);
+    // Get tier based on amount
+    const tier = getTierForAmount(amount);
+    const tierProduct = TIER_PRODUCTS[tier];
 
-    // Create a product for this purchase
+    // Calculate final price
+    const priceInCents = Math.round(amount * BASE_PRICE * tierProduct.multiplier);
+    const discountPercentage = Math.round((1 - tierProduct.multiplier) * 100);
+
+    // Create or retrieve product for this tier
     const product = await stripe.products.create({
-      name: `${amount} Platform Tokens`,
-      description: `Purchase of ${amount} tokens with ${discount}% volume discount`,
+      name: `${amount} Platform Tokens (${tierProduct.name})`,
+      description: `Purchase of ${amount} tokens with ${discountPercentage}% volume discount`,
     });
 
     // Create a price for this product
@@ -95,7 +84,7 @@ export async function createStripeSession(req: Request, res: Response) {
       currency: "usd",
     });
 
-    // Get the base URL dynamically
+    // Get the base URL for success/cancel redirects
     const baseUrl = process.env.APP_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
 
     // Create Stripe checkout session
@@ -114,16 +103,17 @@ export async function createStripeSession(req: Request, res: Response) {
         userId: userId.toString(),
         tokenAmount: amount.toString(),
         tier,
-        discount: discount.toString()
+        discount: discountPercentage.toString()
       },
     });
 
+    // Return session details with pricing information
     res.json({
       sessionId: session.id,
-      discount,
-      tier,
+      basePrice: amount * BASE_PRICE / 100,
+      discount: discountPercentage,
       finalPrice: priceInCents / 100,
-      basePrice: (amount * PRICING_TIERS.base.pricePerToken) / 100
+      tier
     });
   } catch (error: any) {
     console.error("Stripe session creation error:", error);
@@ -216,3 +206,52 @@ export async function createCryptoPayment(req: Request, res: Response) {
     res.status(500).json({ message: "Failed to create crypto payment" });
   }
 }
+
+function calculateTokenPrice(amount: number): {
+  priceInCents: number;
+  discount: number;
+  tier: string;
+} {
+  let tier: keyof typeof PRICING_TIERS;
+
+  if (amount >= PRICING_TIERS.gold.minTokens) {
+    tier = 'gold';
+  } else if (amount >= PRICING_TIERS.silver.minTokens) {
+    tier = 'silver';
+  } else {
+    tier = 'base';
+  }
+
+  const { pricePerToken, discount } = PRICING_TIERS[tier];
+  const priceInCents = Math.floor(amount * pricePerToken * (1 - discount / 100));
+
+  return { 
+    priceInCents,
+    discount,
+    tier
+  };
+}
+
+const PRICING_TIERS = {
+  base: {
+    name: "Base Tier",
+    pricePerToken: 100, // $1.00 per token in cents
+    minTokens: 1,
+    maxTokens: 499,
+    discount: 0
+  },
+  silver: {
+    name: "Silver Tier",
+    pricePerToken: 90, // $0.90 per token in cents
+    minTokens: 500,
+    maxTokens: 999,
+    discount: 10
+  },
+  gold: {
+    name: "Gold Tier",
+    pricePerToken: 80, // $0.80 per token in cents
+    minTokens: 1000,
+    maxTokens: Infinity,
+    discount: 20
+  }
+};
