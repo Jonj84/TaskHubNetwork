@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { CreditCard, Bitcoin, Percent } from 'lucide-react';
 import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
+import { logErrorToServer } from '@/lib/errorLogging';
 
 // Initialize Stripe outside component
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
@@ -75,12 +76,7 @@ export default function PaymentFlow({
   const handleCardPayment = async () => {
     try {
       if (!isValidAmount(tokenAmount)) {
-        toast({
-          variant: 'destructive',
-          title: 'Invalid Amount',
-          description: 'Please enter a token amount between 1 and 10,000',
-        });
-        return;
+        throw new Error('Invalid token amount');
       }
 
       setIsProcessing(true);
@@ -111,11 +107,15 @@ export default function PaymentFlow({
 
       onOpenChange(false);
     } catch (error: any) {
+      // Log error to server
+      await logErrorToServer(error);
+
       toast({
         variant: 'destructive',
         title: 'Payment Failed',
         description: error.message || 'Failed to process payment',
       });
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -162,7 +162,7 @@ export default function PaymentFlow({
               <div>• 1000+ tokens: 20% off</div>
             </div>
 
-            <motion.div 
+            <motion.div
               className="rounded-lg bg-muted p-4 space-y-2"
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -197,7 +197,7 @@ export default function PaymentFlow({
             </motion.div>
           </div>
 
-          <Button 
+          <Button
             onClick={handleCardPayment}
             disabled={isProcessing || !isValidAmount(tokenAmount)}
             className="w-full flex items-center justify-center gap-2"

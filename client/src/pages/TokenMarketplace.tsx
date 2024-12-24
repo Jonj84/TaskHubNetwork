@@ -14,6 +14,7 @@ import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Percent } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
+import { logErrorToServer } from '@/lib/errorLogging';
 
 // Initialize Stripe outside of component
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
@@ -31,31 +32,46 @@ export default function TokenMarketplace() {
   const [pricing, setPricing] = useState<PriceInfo>({ basePrice: 10, discount: 0, finalPrice: 10 });
 
   // Calculate price with volume discounts
-  const calculatePrice = (amount: number): PriceInfo => {
-    const basePrice = amount; // $1.00 per token
-    let discount = 0;
-
-    if (amount >= 1000) {
-      discount = 20; // 20% discount
-    } else if (amount >= 500) {
-      discount = 10; // 10% discount
-    }
-
-    return {
-      basePrice,
-      discount,
-      finalPrice: basePrice * (1 - discount / 100)
-    };
-  };
-
-  // Update price whenever token amount changes
   useEffect(() => {
-    setPricing(calculatePrice(tokenAmount));
+    const calculatePrice = async () => {
+      try {
+        if (!isValidAmount(tokenAmount)) {
+          return;
+        }
+
+        const response = await fetch('/api/tokens/calculate-price', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ amount: tokenAmount }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const data = await response.json();
+        setPricing(data);
+      } catch (error: any) {
+        await logErrorToServer(error, 'Price calculation failed');
+        toast({
+          variant: 'destructive',
+          title: 'Price Calculation Error',
+          description: 'Failed to calculate token price. Please try again.',
+        });
+      }
+    };
+
+    calculatePrice();
   }, [tokenAmount]);
 
   const handlePurchase = async () => {
     try {
       setIsProcessing(true);
+
+      if (!isValidAmount(tokenAmount)) {
+        throw new Error('Please enter a valid amount between 1 and 10,000 tokens');
+      }
 
       // Create Stripe checkout session
       const response = await fetch('/api/tokens/purchase', {
@@ -80,9 +96,12 @@ export default function TokenMarketplace() {
       const { error } = await stripe.redirectToCheckout({ sessionId });
 
       if (error) {
-        throw new Error(error.message);
+        throw error;
       }
     } catch (error: any) {
+      // Log error with context
+      await logErrorToServer(error, 'Token purchase failed');
+
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
@@ -99,7 +118,7 @@ export default function TokenMarketplace() {
     setTokenAmount(clampedValue);
   };
 
-  const isValidAmount = tokenAmount >= 1 && tokenAmount <= 10000;
+  const isValidAmount = (amount: number) => amount >= 1 && amount <= 10000;
 
   return (
     <div className="container mx-auto py-8 px-4">
@@ -138,7 +157,6 @@ export default function TokenMarketplace() {
               />
             </div>
 
-            {/* Discount thresholds information */}
             <div className="flex justify-between text-sm text-muted-foreground">
               <span>Volume Discounts:</span>
               <div className="space-x-4">
@@ -200,7 +218,7 @@ export default function TokenMarketplace() {
 
           <Button 
             onClick={handlePurchase}
-            disabled={isProcessing || !isValidAmount}
+            disabled={isProcessing || !isValidAmount(tokenAmount)}
             className="w-full relative"
           >
             {isProcessing ? (
@@ -217,7 +235,7 @@ export default function TokenMarketplace() {
           </Button>
 
           {/* Validation message */}
-          {!isValidAmount && (
+          {!isValidAmount(tokenAmount) && (
             <div className="flex items-center gap-2 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
               <span>Please enter a valid amount between 1 and 10,000 tokens</span>

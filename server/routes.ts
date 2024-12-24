@@ -17,6 +17,15 @@ interface AuthRequest extends Request {
   };
 }
 
+// Error logging interface
+interface ClientError {
+  message: string;
+  stack?: string;
+  componentStack?: string;
+  location?: string;
+  timestamp: string;
+}
+
 // Middleware to ensure user is authenticated
 const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
   if (!req.isAuthenticated()) {
@@ -25,27 +34,22 @@ const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
   next();
 };
 
-function calculateTokenPrice(amount: number): {
-  basePrice: number;
-  discount: number;
-  finalPrice: number;
-} {
-  const basePrice = amount; // $1 per token
-  let discount = 0;
-
-  if (amount >= 1000) {
-    discount = 20; // 20% discount
-  } else if (amount >= 500) {
-    discount = 10; // 10% discount
-  }
-
-  const finalPrice = basePrice * (1 - discount / 100);
-
-  return {
-    basePrice,
-    discount,
-    finalPrice,
+function logError(error: any, req: Request) {
+  const timestamp = new Date().toISOString();
+  const userId = (req as AuthRequest).user?.id;
+  const errorLog = {
+    timestamp,
+    userId,
+    path: req.path,
+    method: req.method,
+    error: error.message || 'Unknown error',
+    stack: error.stack,
+    componentStack: error.componentStack,
+    userAgent: req.headers['user-agent'],
   };
+
+  console.error('Application Error:', JSON.stringify(errorLog, null, 2));
+  return errorLog;
 }
 
 export function registerRoutes(app: Express): Server {
@@ -54,6 +58,20 @@ export function registerRoutes(app: Express): Server {
 
   // Setup WebSocket server
   const { broadcast } = setupWebSocket(httpServer);
+
+  // Error logging endpoint
+  app.post('/api/log/error', express.json(), (req: Request, res: Response) => {
+    const clientError: ClientError = req.body;
+    const errorLog = logError(clientError, req);
+
+    // Broadcast error to connected clients (useful for admin dashboards)
+    broadcast('ERROR_EVENT', {
+      type: 'client_error',
+      ...errorLog
+    });
+
+    res.status(200).json({ message: 'Error logged successfully' });
+  });
 
   // Stripe webhook endpoint - must be before body parsing middleware
   app.post(
@@ -130,16 +148,14 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Error handling middleware
+  // Enhanced error handling middleware
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-    console.error('Error:', err);
+    const errorLog = logError(err, req);
 
     // Broadcast error to all connected clients
     broadcast('ERROR_EVENT', {
-      message: err.message,
-      type: 'error',
-      source: req.path,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      ...errorLog,
+      type: 'server_error',
     });
 
     res.status(500).json({
@@ -148,4 +164,27 @@ export function registerRoutes(app: Express): Server {
   });
 
   return httpServer;
+}
+
+function calculateTokenPrice(amount: number): {
+  basePrice: number;
+  discount: number;
+  finalPrice: number;
+} {
+  const basePrice = amount; // $1 per token
+  let discount = 0;
+
+  if (amount >= 1000) {
+    discount = 20; // 20% discount
+  } else if (amount >= 500) {
+    discount = 10; // 10% discount
+  }
+
+  const finalPrice = basePrice * (1 - discount / 100);
+
+  return {
+    basePrice,
+    discount,
+    finalPrice,
+  };
 }
