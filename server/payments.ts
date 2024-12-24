@@ -49,8 +49,8 @@ export async function createStripeSession(req: Request, res: Response) {
         },
       ],
       mode: "payment",
-      success_url: `${baseUrl}?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}?canceled=true`,
+      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/cancel`,
       metadata: {
         tokenAmount: amount.toString(),
       },

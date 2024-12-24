@@ -17,7 +17,14 @@ import { loadStripe } from '@stripe/stripe-js';
 import { logErrorToServer } from '@/lib/errorLogging';
 
 // Initialize Stripe outside of component
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+let stripePromise: Promise<any> | null = null;
+
+const getStripe = () => {
+  if (!stripePromise && import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
+    stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+  }
+  return stripePromise;
+};
 
 interface PriceInfo {
   basePrice: number;
@@ -57,7 +64,7 @@ export default function TokenMarketplace() {
         const data = await response.json();
         setPricing(data);
       } catch (error: any) {
-        await logErrorToServer(error, 'Price calculation failed');
+        await logErrorToServer(error, 'price_calculation_failed');
         toast({
           variant: 'destructive',
           title: 'Price Calculation Error',
@@ -83,13 +90,7 @@ export default function TokenMarketplace() {
         throw new Error('Please enter a valid amount between 1 and 10,000 tokens');
       }
 
-      // Get Stripe instance first
-      const stripe = await stripePromise;
-      if (!stripe) {
-        throw new Error('Failed to initialize Stripe');
-      }
-
-      // Create checkout session
+      // Create checkout session first
       const response = await fetch('/api/tokens/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -98,26 +99,31 @@ export default function TokenMarketplace() {
       });
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        const errorText = await response.text();
+        throw new Error(errorText);
       }
 
       const { sessionId } = await response.json();
 
-      // Redirect to checkout using Stripe.js
-      const { error } = await stripe.redirectToCheckout({
-        sessionId,
-      });
-
-      if (error) {
-        throw new Error(error.message || 'Failed to redirect to checkout');
+      // Direct URL redirect instead of using Stripe.js
+      const stripe = await getStripe();
+      if (!stripe) {
+        throw new Error('Failed to initialize Stripe');
       }
 
+      // Log the redirect attempt
+      console.log('Redirecting to Stripe checkout:', { sessionId });
+
+      // Use direct window location for redirection
+      window.location.href = `https://checkout.stripe.com/c/pay/${sessionId}`;
+
     } catch (error: any) {
-      await logErrorToServer(error, 'Token purchase failed');
+      console.error('[Token purchase failed] Error:', error);
+      await logErrorToServer(error, 'token_purchase_failed');
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
-        description: error.message || 'Failed to process payment',
+        description: error.message || 'Failed to process payment. Please try again.',
       });
       setIsProcessing(false);
     }
