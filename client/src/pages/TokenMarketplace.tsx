@@ -85,19 +85,23 @@ export default function TokenMarketplace() {
         throw new Error(await response.text());
       }
 
-      const { sessionId } = await response.json();
+      // Get both sessionId and url in a single read
+      const { sessionId, url } = await response.json();
 
-      // Get Stripe instance and redirect to checkout
-      const stripe = await stripePromise;
-      if (!stripe) {
-        throw new Error('Failed to load Stripe');
-      }
-
-      const { url } = await response.json();
+      // Redirect to Stripe checkout using the provided URL
       if (url) {
-        window.open(url, '_blank');
+        window.location.href = url;
       } else {
-        throw new Error('No checkout URL received');
+        // Fallback to using Stripe.js redirect if no URL is provided
+        const stripe = await stripePromise;
+        if (!stripe) {
+          throw new Error('Failed to load Stripe');
+        }
+
+        const { error } = await stripe.redirectToCheckout({ sessionId });
+        if (error) {
+          throw error;
+        }
       }
     } catch (error: any) {
       // Log error with context
