@@ -72,7 +72,13 @@ export default function TokenMarketplace() {
         throw new Error('Please enter a valid amount between 1 and 10,000 tokens');
       }
 
-      // Create Stripe checkout session
+      // Get Stripe instance first
+      const stripe = await stripePromise;
+      if (!stripe) {
+        throw new Error('Failed to initialize Stripe');
+      }
+
+      // Create checkout session
       const response = await fetch('/api/tokens/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -84,46 +90,17 @@ export default function TokenMarketplace() {
         throw new Error(await response.text());
       }
 
-      const { sessionId, url } = await response.json();
+      const { sessionId } = await response.json();
 
-      // Handle the redirect with a timeout
-      const redirectWithTimeout = () => {
-        const timeout = setTimeout(() => {
-          toast({
-            variant: 'destructive',
-            title: 'Redirect Timeout',
-            description: 'Failed to redirect to Stripe. Please try again.',
-          });
-          setIsProcessing(false);
-        }, 5000); // 5 second timeout
+      // Redirect to checkout using Stripe.js
+      const { error } = await stripe.redirectToCheckout({
+        sessionId,
+      });
 
-        // If URL is provided, use it directly
-        if (url) {
-          // Ensure URL is from trusted domain
-          if (!url.startsWith('https://checkout.stripe.com')) {
-            throw new Error('Invalid checkout URL');
-          }
-          window.location.assign(url);
-        } else {
-          // Fallback to Stripe.js redirect
-          stripePromise.then(stripe => {
-            if (!stripe) {
-              throw new Error('Failed to load Stripe');
-            }
-            return stripe.redirectToCheckout({ sessionId });
-          }).then(({ error }) => {
-            if (error) {
-              throw error;
-            }
-            clearTimeout(timeout);
-          }).catch(error => {
-            clearTimeout(timeout);
-            throw error;
-          });
-        }
-      };
+      if (error) {
+        throw new Error(error.message || 'Failed to redirect to checkout');
+      }
 
-      redirectWithTimeout();
     } catch (error: any) {
       await logErrorToServer(error, 'Token purchase failed');
       toast({
@@ -188,7 +165,7 @@ export default function TokenMarketplace() {
             </div>
           </div>
 
-          <motion.div 
+          <motion.div
             className="rounded-lg bg-muted p-4 space-y-2"
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -238,7 +215,7 @@ export default function TokenMarketplace() {
             </div>
           </motion.div>
 
-          <Button 
+          <Button
             onClick={handlePurchase}
             disabled={isProcessing || !isValidAmount(tokenAmount)}
             className="w-full relative"
