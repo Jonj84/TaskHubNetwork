@@ -7,6 +7,7 @@ import { desc, eq } from "drizzle-orm";
 import { insertTaskSchema } from "@db/schema";
 import { createStripeSession, handleStripeWebhook, createCryptoPayment } from "./payments";
 import express from "express";
+import { validatePackageMiddleware } from './middleware/packageValidation';
 
 // Extend Express Request type to include authenticated user
 interface AuthRequest extends Request {
@@ -24,6 +25,13 @@ const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
   }
   next();
 };
+
+// Placeholder for actual validation logic (needs to be implemented separately)
+async function validateTokenPackage(packageData: any, existingPackages: any[]): Promise<boolean> {
+    //Add your validation logic here.  This is a placeholder.
+    return true; // Replace with actual validation result
+}
+
 
 export function registerRoutes(app: Express): Server {
   // First create the HTTP server
@@ -123,6 +131,79 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Token package endpoints
+  app.post(
+    "/api/tokens/packages",
+    requireAuth,
+    validatePackageMiddleware,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const [newPackage] = await db
+          .insert(tokenPackages)
+          .values(req.body)
+          .returning();
+
+        res.json(newPackage);
+      } catch (error) {
+        console.error('Error creating token package:', error);
+        res.status(500).json({ message: "Failed to create token package" });
+      }
+    }
+  );
+
+  app.put(
+    "/api/tokens/packages/:id",
+    requireAuth,
+    validatePackageMiddleware,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const packageId = parseInt(req.params.id);
+
+        const [updatedPackage] = await db
+          .update(tokenPackages)
+          .set({
+            ...req.body,
+            updated_at: new Date(),
+          })
+          .where(eq(tokenPackages.id, packageId))
+          .returning();
+
+        if (!updatedPackage) {
+          return res.status(404).json({ message: "Package not found" });
+        }
+
+        res.json(updatedPackage);
+      } catch (error) {
+        console.error('Error updating token package:', error);
+        res.status(500).json({ message: "Failed to update token package" });
+      }
+    }
+  );
+
+  // Validation check endpoint
+  app.post(
+    "/api/tokens/packages/validate",
+    requireAuth,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const packageData = req.body;
+
+        const existingPackages = await db
+          .select()
+          .from(tokenPackages)
+          .where(pkg => 
+            packageData.id ? pkg.id !== packageData.id : true
+          );
+
+        const validation = await validateTokenPackage(packageData, existingPackages);
+
+        res.json(validation);
+      } catch (error) {
+        console.error('Validation check error:', error);
+        res.status(500).json({ message: "Failed to validate package" });
+      }
+    }
+  );
+
   app.get("/api/tokens/packages", async (_req, res: Response) => {
     try {
       const packages = await db
