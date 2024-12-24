@@ -10,6 +10,25 @@ if (!process.env.STRIPE_SECRET_KEY) {
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
+// Pricing tiers for Stripe products
+const STRIPE_PRODUCTS = {
+  standard: {
+    name: 'Standard Tokens',
+    description: 'Basic token package (1-499 tokens)',
+    pricePerToken: 1.00
+  },
+  plus: {
+    name: 'Plus Tokens',
+    description: 'Volume discount package (500-999 tokens) - 10% off',
+    pricePerToken: 0.90
+  },
+  premium: {
+    name: 'Premium Tokens',
+    description: 'Bulk discount package (1000+ tokens) - 20% off',
+    pricePerToken: 0.80
+  }
+};
+
 export async function createStripeSession(req: Request, res: Response) {
   try {
     const { amount } = req.body;
@@ -22,12 +41,21 @@ export async function createStripeSession(req: Request, res: Response) {
       });
     }
 
-    // Calculate price in cents (Stripe expects amounts in smallest currency unit)
-    const priceInCents = Math.round(amount * 100); // $1 per token
+    // Determine pricing tier
+    let tier = 'standard';
+    if (amount >= 1000) {
+      tier = 'premium';
+    } else if (amount >= 500) {
+      tier = 'plus';
+    }
+
+    const product = STRIPE_PRODUCTS[tier as keyof typeof STRIPE_PRODUCTS];
+    const priceInCents = Math.round(amount * product.pricePerToken * 100);
     const baseUrl = `${req.protocol}://${req.get('host')}`;
 
     console.log('Creating Stripe session:', {
       amount,
+      tier,
       priceInCents,
       baseUrl,
       userId: (req as any).user?.id
@@ -41,8 +69,8 @@ export async function createStripeSession(req: Request, res: Response) {
           price_data: {
             currency: "usd",
             product_data: {
-              name: `${amount} Platform Tokens`,
-              description: `Purchase of ${amount} tokens`,
+              name: `${amount} ${product.name}`,
+              description: `Purchase of ${amount} tokens (${product.description})`,
             },
             unit_amount: priceInCents,
           },
@@ -55,6 +83,7 @@ export async function createStripeSession(req: Request, res: Response) {
       metadata: {
         tokenAmount: amount.toString(),
         userId: (req as any).user?.id?.toString(),
+        tier
       },
     });
 
@@ -78,7 +107,6 @@ export async function createStripeSession(req: Request, res: Response) {
       stripeCode: error.code
     });
 
-    // Format Stripe errors appropriately
     if (error.type?.startsWith('Stripe')) {
       return res.status(400).json({ 
         message: error.message,
