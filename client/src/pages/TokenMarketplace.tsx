@@ -13,9 +13,62 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Check, Star } from 'lucide-react';
 import PaymentFlow from '@/components/PaymentFlow';
-import type { TokenPackage } from '@db/schema';
+import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion } from 'framer-motion';
 import { useTheme } from '@/hooks/use-theme';
+
+interface TokenPackage {
+  id: number;
+  name: string;
+  description: string;
+  tokenAmount: number;
+  price: number;
+  isPopular?: boolean;
+  features: string[];
+}
+
+const defaultPackages: TokenPackage[] = [
+  {
+    id: 1,
+    name: "Starter Pack",
+    description: "Perfect for trying out the platform",
+    tokenAmount: 50,
+    price: 500, // $5.00
+    features: [
+      "Basic task creation",
+      "Standard support",
+      "24-hour validity"
+    ]
+  },
+  {
+    id: 2,
+    name: "Popular Pack",
+    description: "Most chosen by our users",
+    tokenAmount: 200,
+    price: 1500, // $15.00
+    isPopular: true,
+    features: [
+      "Premium task creation",
+      "Priority support",
+      "7-day validity",
+      "Bulk discount included"
+    ]
+  },
+  {
+    id: 3,
+    name: "Pro Pack",
+    description: "Best value for power users",
+    tokenAmount: 500,
+    price: 3000, // $30.00
+    features: [
+      "Enterprise task creation",
+      "24/7 priority support",
+      "30-day validity",
+      "Maximum bulk discount",
+      "Custom task templates"
+    ]
+  }
+];
 
 export default function TokenMarketplace() {
   const { toast } = useToast();
@@ -24,7 +77,7 @@ export default function TokenMarketplace() {
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const { theme } = useTheme();
 
-  const { data: packages = [], isLoading } = useQuery<TokenPackage[]>({
+  const { data: packages = defaultPackages, isLoading } = useQuery<TokenPackage[]>({
     queryKey: ['/api/tokens/packages'],
   });
 
@@ -35,8 +88,8 @@ export default function TokenMarketplace() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <BlockchainLoader size="lg" />
       </div>
     );
   }
@@ -115,7 +168,7 @@ export default function TokenMarketplace() {
                   </p>
                 </motion.div>
                 <ul className="space-y-2">
-                  {(pkg.features as string[]).map((feature, index) => (
+                  {pkg.features.map((feature, index) => (
                     <motion.li 
                       key={index} 
                       className="flex items-center gap-2"

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, CreditCard, Bitcoin, Percent } from 'lucide-react';
+import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface PaymentFlowProps {
@@ -220,7 +221,7 @@ export default function PaymentFlow({
               className="w-full flex items-center justify-center gap-2"
             >
               {isProcessing && paymentMethod === 'card' ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <BlockchainLoader size="sm" />
               ) : (
                 <CreditCard className="h-4 w-4" />
               )}
@@ -237,7 +238,7 @@ export default function PaymentFlow({
               className="w-full flex items-center justify-center gap-2"
             >
               {isProcessing && paymentMethod === 'crypto' ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <BlockchainLoader size="sm" />
               ) : (
                 <Bitcoin className="h-4 w-4" />
               )}
