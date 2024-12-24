@@ -5,11 +5,55 @@ import { tokenTransactions, users, tokenPackages } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
 
 const stripe = process.env.STRIPE_SECRET_KEY 
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" })
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-12-18.acacia" })
   : null;
 
 if (!stripe) {
   console.error("Warning: STRIPE_SECRET_KEY not configured");
+}
+
+async function ensureStripeProduct(tokenPackage: any) {
+  if (!stripe) {
+    throw new Error("Stripe is not configured");
+  }
+
+  // If we already have a price ID, return it
+  if (tokenPackage.stripePriceId) {
+    return tokenPackage.stripePriceId;
+  }
+
+  try {
+    // Create a new product in Stripe
+    const product = await stripe.products.create({
+      name: tokenPackage.name,
+      description: `${tokenPackage.tokenAmount} tokens`,
+      metadata: {
+        packageId: tokenPackage.id.toString(),
+      },
+    });
+
+    // Create a price for the product
+    const price = await stripe.prices.create({
+      product: product.id,
+      unit_amount: tokenPackage.price * 100, // Convert to cents
+      currency: "usd",
+    });
+
+    // Store the IDs in our database
+    await db
+      .update(tokenPackages)
+      .set({
+        stripeProductId: product.id,
+        stripePriceId: price.id,
+        updated_at: new Date(),
+      })
+      .where(eq(tokenPackages.id, tokenPackage.id));
+
+    return price.id;
+  } catch (error) {
+    console.error("Failed to create Stripe product:", error);
+    throw new Error("Failed to create Stripe product");
+  }
 }
 
 export async function createStripeSession(req: Request, res: Response) {
@@ -17,7 +61,7 @@ export async function createStripeSession(req: Request, res: Response) {
     if (!stripe) {
       return res.status(500).json({ message: "Stripe is not configured" });
     }
-    const { amount, packageId } = req.body;
+    const { packageId } = req.body;
     const userId = req.user?.id;
 
     if (!userId) {
@@ -35,26 +79,24 @@ export async function createStripeSession(req: Request, res: Response) {
       return res.status(404).json({ message: "Package not found" });
     }
 
-    // Create a Stripe Checkout Session
+    // Ensure we have a Stripe price ID for this package
+    const stripePriceId = await ensureStripeProduct(tokenPackage);
+
+    // Get the base URL dynamically
+    const baseUrl = process.env.APP_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+
+    // Create a Stripe Checkout Session using the price ID
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: [
         {
+          price: stripePriceId,
           quantity: 1,
-          price_data: {
-            currency: "usd",
-            unit_amount: tokenPackage.price * 100,
-            product_data: {
-              name: tokenPackage.name,
-              description: `${tokenPackage.tokenAmount} tokens`,
-              images: [],
-            },
-          },
         },
       ],
       mode: "payment",
-      success_url: `${process.env.APP_URL || 'https://' + process.env.REPL_SLUG + '.' + process.env.REPL_OWNER + '.repl.co'}/marketplace?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.APP_URL || 'https://' + process.env.REPL_SLUG + '.' + process.env.REPL_OWNER + '.repl.co'}/marketplace?canceled=true`,
+      success_url: `${baseUrl}/marketplace?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/marketplace?canceled=true`,
       metadata: {
         userId: userId.toString(),
         packageId: packageId.toString(),

@@ -16,9 +16,11 @@ export const tokenPackages = pgTable("token_packages", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   tokenAmount: integer("token_amount").notNull(),
-  price: integer("price").notNull(), // Price in credits/points
+  price: integer("price").notNull(), // Price in cents (USD)
   features: jsonb("features").notNull(),
   isPopular: boolean("is_popular").default(false),
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -29,8 +31,8 @@ export const tasks = pgTable("tasks", {
   description: text("description").notNull(),
   type: text("type", { enum: ["computational", "manual"] }).notNull(),
   reward: integer("reward").notNull(),
-  status: text("status", { 
-    enum: ["open", "in_progress", "pending_verification", "completed", "cancelled"] 
+  status: text("status", {
+    enum: ["open", "in_progress", "pending_verification", "completed", "cancelled"]
   }).notNull().default("open"),
   creatorId: integer("creator_id").notNull().references(() => users.id),
   workerId: integer("worker_id").references(() => users.id),
@@ -44,8 +46,8 @@ export const tokenTransactions = pgTable("token_transactions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
   amount: integer("amount").notNull(),
-  type: text("type", { 
-    enum: ["reward", "purchase", "escrow", "release"] 
+  type: text("type", {
+    enum: ["reward", "purchase", "escrow", "release"]
   }).notNull(),
   packageId: integer("package_id").references(() => tokenPackages.id),
   taskId: integer("task_id").references(() => tasks.id),

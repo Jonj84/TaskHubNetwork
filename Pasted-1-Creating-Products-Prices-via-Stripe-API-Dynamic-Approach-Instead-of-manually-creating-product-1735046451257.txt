@@ -1,0 +1,134 @@
+1. Creating Products & Prices via Stripe API (Dynamic Approach)
+Instead of manually creating products in the Stripe dashboard, you can automate the process by defining products and prices directly through your code.
+
+Code Example: Create a Product & Price in Stripe (Once Per Token Package)
+Add this function to your backend to dynamically create token packages in Stripe when a new package is added to your database.
+
+javascript
+Copy code
+async function createStripeProductForPackage(tokenPackage) {
+  if (!stripe) {
+    throw new Error("Stripe is not configured");
+  }
+
+  // Create a new product in Stripe
+  const product = await stripe.products.create({
+    name: tokenPackage.name,
+    description: `${tokenPackage.tokenAmount} tokens`,
+    images: [],
+    metadata: {
+      packageId: tokenPackage.id.toString(),  // Store package ID for reference
+    },
+  });
+
+  // Create a price for the product
+  const price = await stripe.prices.create({
+    product: product.id,
+    unit_amount: tokenPackage.price * 100,  // Price in cents
+    currency: "usd",
+  });
+
+  // Store the price ID in your database for future use
+  await db
+    .update(tokenPackages)
+    .set({
+      stripePriceId: price.id,
+    })
+    .where(eq(tokenPackages.id, tokenPackage.id));
+
+  console.log(`Created Stripe product and price for package: ${tokenPackage.name}`);
+  return price.id;
+}
+2. Modify Your Checkout Session to Use Pre-Created Prices
+Once the product and price are created and stored in the database, you can reuse them during checkout.
+
+javascript
+Copy code
+const [tokenPackage] = await db
+  .select()
+  .from(tokenPackages)
+  .where(eq(tokenPackages.id, packageId))
+  .limit(1);
+
+if (!tokenPackage.stripePriceId) {
+  // If the package doesn't have a Stripe price ID, create one dynamically
+  const stripePriceId = await createStripeProductForPackage(tokenPackage);
+  tokenPackage.stripePriceId = stripePriceId;
+}
+
+// Use the existing or newly created price for checkout
+const session = await stripe.checkout.sessions.create({
+  payment_method_types: ["card"],
+  line_items: [
+    {
+      price: tokenPackage.stripePriceId,
+      quantity: 1,
+    },
+  ],
+  mode: "payment",
+  success_url: `${process.env.APP_URL}/success`,
+  cancel_url: `${process.env.APP_URL}/cancel`,
+  metadata: {
+    userId: userId.toString(),
+    packageId: packageId.toString(),
+  },
+});
+3. Benefits of This Approach
+Automated Product Management:
+New token packages automatically generate corresponding Stripe products.
+Consistency:
+Stripe products/prices always match the state of your database.
+No Manual Stripe Work:
+Developers or admins don’t need to log into Stripe manually.
+Scalable:
+Supports large numbers of token packages without manual configuration.
+4. Webhook Adjustment (To Handle Dynamic Prices)
+Your webhook (checkout.session.completed) doesn't need to change significantly. Since price IDs are stored in the database, the line item and metadata will reference the correct package automatically.
+
+javascript
+Copy code
+if (event.type === "checkout.session.completed") {
+  const session = event.data.object as Stripe.Checkout.Session;
+  const { userId, packageId } = session.metadata || {};
+
+  if (!userId || !packageId) {
+    throw new Error("Missing metadata");
+  }
+
+  const [tokenPackage] = await db
+    .select()
+    .from(tokenPackages)
+    .where(eq(tokenPackages.id, parseInt(packageId)))
+    .limit(1);
+
+  if (!tokenPackage) {
+    throw new Error("Package not found");
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.insert(tokenTransactions).values({
+      userId: parseInt(userId),
+      amount: tokenPackage.tokenAmount,
+      type: "purchase",
+      packageId: parseInt(packageId),
+    });
+
+    await tx
+      .update(users)
+      .set({
+        tokenBalance: sql`${users.tokenBalance} + ${tokenPackage.tokenAmount}`,
+        updated_at: new Date(),
+      })
+      .where(eq(users.id, parseInt(userId)));
+  });
+
+  console.log(`Processed payment for user ${userId}, package ${packageId}`);
+}
+5. How It All Fits Together
+New Token Package? Automatically creates a product + price in Stripe.
+Existing Package? Reuses the Stripe price stored in the database.
+Payments? Always reference a Stripe price_id, making line items cleaner and more reliable.
+Stripe API Docs (Reference for This Flow)
+Creating Products: Stripe API - Create Product
+Creating Prices: Stripe API - Create Price
+Checkout Sessions: Stripe Checkout
