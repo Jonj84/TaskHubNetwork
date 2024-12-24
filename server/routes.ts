@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { setupWebSocket } from "./ws";
 import { db } from "@db";
 import { tasks, tokenTransactions, users, tokenPackages } from "@db/schema";
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, sql, and, or } from "drizzle-orm";
 import { insertTaskSchema } from "@db/schema";
 import { createStripeSession, handleStripeWebhook, createCryptoPayment } from "./payments";
 import express from "express";
@@ -191,8 +191,13 @@ export function registerRoutes(app: Express): Server {
         const existingPackages = await db
           .select()
           .from(tokenPackages)
-          .where(pkg => 
-            packageData.id ? pkg.id !== packageData.id : true
+          .where(
+            packageData.id 
+              ? and(
+                  eq(tokenPackages.id, packageData.id),
+                  sql`true`
+                )
+              : sql`true`
           );
 
         const validation = await validateTokenPackage(packageData, existingPackages);
