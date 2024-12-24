@@ -54,20 +54,25 @@ app.use((req, res, next) => {
       res.status(status).json({ message });
     });
 
-    // Setup Vite in development mode
+    // Setup Vite in development mode or serve static files in production
     if (app.get("env") === "development") {
       await setupVite(app, server);
     } else {
       serveStatic(app);
     }
 
+    // Start server on port 5000
     const PORT = 5000;
     server.listen(PORT, "0.0.0.0", () => {
       log(`Server is running on port ${PORT}`);
     });
 
+    // Handle server errors
     server.on('error', (error: Error) => {
       log(`Server error: ${error.message}`);
+      if (error.stack) {
+        log(`Stack: ${error.stack}`);
+      }
       process.exit(1);
     });
   } catch (error: any) {

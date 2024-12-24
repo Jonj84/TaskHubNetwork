@@ -15,23 +15,27 @@ export function broadcast(type: string, data: any) {
 }
 
 export function setupWebSocket(server: Server) {
-  const wss = new WebSocketServer({ 
-    server,
-    // Handle the Vite HMR websocket specially
-    handleProtocols: (protocols: Set<string> | string[]) => {
-      if (protocols instanceof Set ? protocols.has('vite-hmr') : protocols.includes('vite-hmr')) {
-        return false; // Let Vite handle its own WebSocket
+  const wss = new WebSocketServer({ noServer: true });
+
+  // Handle upgrade manually to filter out Vite HMR
+  server.on('upgrade', (request, socket, head) => {
+    try {
+      const protocol = request.headers['sec-websocket-protocol'];
+      // Skip Vite HMR connections
+      if (protocol === 'vite-hmr') {
+        return;
       }
-      return protocols instanceof Set ? Array.from(protocols)[0] : protocols[0] || false;
+
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } catch (error) {
+      console.error('WebSocket upgrade error:', error);
+      socket.destroy();
     }
   });
 
-  wss.on("connection", (ws, req) => {
-    // Skip Vite HMR connections
-    if (req.headers['sec-websocket-protocol'] === 'vite-hmr') {
-      return;
-    }
-
+  wss.on("connection", (ws) => {
     // Add new client to the set
     clients.add(ws);
 
@@ -44,6 +48,7 @@ export function setupWebSocket(server: Server) {
     ws.on("error", (error) => {
       console.error("WebSocket error:", error);
       clients.delete(ws);
+      ws.terminate();
     });
 
     // Send initial connection status

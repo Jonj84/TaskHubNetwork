@@ -11,7 +11,16 @@ export function useUser() {
 
   const { data: user, isLoading } = useQuery<User>({
     queryKey: ['/api/user'],
-    retry: false,
+    gcTime: 1000 * 60 * 60, // Cache for 1 hour
+    staleTime: 30000, // Consider data fresh for 30 seconds
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    retry: (failureCount, error: any) => {
+      if (error?.message?.includes('401')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
   });
 
   const loginMutation = useMutation({
@@ -22,7 +31,7 @@ export function useUser() {
         credentials: 'include',
         body: JSON.stringify(data),
       });
-      
+
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -42,7 +51,7 @@ export function useUser() {
         credentials: 'include',
         body: JSON.stringify(data),
       });
-      
+
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -60,7 +69,7 @@ export function useUser() {
         method: 'POST',
         credentials: 'include',
       });
-      
+
       if (!response.ok) {
         throw new Error(await response.text());
       }
