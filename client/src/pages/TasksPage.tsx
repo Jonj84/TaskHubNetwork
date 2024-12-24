@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -18,27 +19,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import TaskCard from '../components/TaskCard';
 import { useToast } from '@/hooks/use-toast';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import type { Task, TaskType } from '../types';
+
+const taskSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(100, 'Title is too long'),
+  description: z.string().min(1, 'Description is required').max(500, 'Description is too long'),
+  type: z.enum(['manual', 'computational'] as const),
+  reward: z.number().min(1, 'Reward must be at least 1 token').max(1000, 'Reward cannot exceed 1000 tokens'),
+  proofRequired: z.string().min(1, 'Proof requirement is required').max(200, 'Proof requirement is too long'),
+});
+
+type TaskFormData = z.infer<typeof taskSchema>;
 
 export default function TasksPage() {
   const { tasks, createTask } = useTasks();
   const { user } = useUser();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [newTask, setNewTask] = useState<Partial<Task>>({
-    title: '',
-    description: '',
-    type: 'manual',
-    reward: 0,
-    proofRequired: '',
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const form = useForm<TaskFormData>({
+    resolver: zodResolver(taskSchema),
+    defaultValues: {
+      title: '',
+      description: '',
+      type: 'manual',
+      reward: 1,
+      proofRequired: '',
+    },
   });
 
-  const handleCreateTask = async () => {
+  const handleCreateTask = async (data: TaskFormData) => {
     try {
-      await createTask(newTask);
+      setIsSubmitting(true);
+      await createTask(data);
       setOpen(false);
+      form.reset();
       toast({
         title: 'Success',
         description: 'Task created successfully',
@@ -49,6 +78,8 @@ export default function TasksPage() {
         title: 'Error',
         description: error.message,
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -63,43 +94,93 @@ export default function TasksPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Task</DialogTitle>
+              <DialogDescription>Fill in the details below to create a new task.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <Input
-                placeholder="Task Title"
-                value={newTask.title}
-                onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-              />
-              <Textarea
-                placeholder="Task Description"
-                value={newTask.description}
-                onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-              />
-              <Select
-                value={newTask.type}
-                onValueChange={(value: TaskType) => setNewTask({ ...newTask, type: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Task Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="manual">Manual</SelectItem>
-                  <SelectItem value="computational">Computational</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                type="number"
-                placeholder="Reward (tokens)"
-                value={newTask.reward}
-                onChange={(e) => setNewTask({ ...newTask, reward: Number(e.target.value) })}
-              />
-              <Input
-                placeholder="Required Proof"
-                value={newTask.proofRequired}
-                onChange={(e) => setNewTask({ ...newTask, proofRequired: e.target.value })}
-              />
-              <Button onClick={handleCreateTask}>Create Task</Button>
-            </div>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(handleCreateTask)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Title</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Task Title" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea placeholder="Task Description" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Task Type</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select task type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="manual">Manual</SelectItem>
+                          <SelectItem value="computational">Computational</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="reward"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reward (tokens)</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="number" 
+                          placeholder="Reward amount" 
+                          {...field}
+                          onChange={(e) => field.onChange(Number(e.target.value))} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="proofRequired"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Required Proof</FormLabel>
+                      <FormControl>
+                        <Input placeholder="What proof is required?" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                  {isSubmitting ? 'Creating...' : 'Create Task'}
+                </Button>
+              </form>
+            </Form>
           </DialogContent>
         </Dialog>
       </div>
