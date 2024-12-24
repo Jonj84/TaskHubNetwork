@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { setupWebSocket } from "./ws";
 import { db } from "@db";
-import { tasks } from "@db/schema";
+import { tasks, tokenTransactions, users } from "@db/schema";
 import { desc, eq } from "drizzle-orm";
 import { insertTaskSchema } from "@db/schema";
 
@@ -46,6 +46,63 @@ export function registerRoutes(app: Express): Server {
     }
     next();
   };
+
+  // Token purchase endpoint
+  app.post("/api/tokens/purchase", requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { amount } = req.body;
+
+      if (!amount || amount < 1 || amount > 1000) {
+        return res.status(400).json({ message: "Invalid token amount" });
+      }
+
+      const userId = req.user!.id;
+
+      // Record the purchase transaction
+      await db.transaction(async (tx) => {
+        await tx.insert(tokenTransactions).values({
+          userId,
+          amount,
+          type: 'purchase',
+        });
+
+        // Update user's token balance
+        await tx
+          .update(users)
+          .set({ 
+            tokenBalance: req.user!.tokenBalance + amount,
+            updated_at: new Date(),
+          })
+          .where(eq(users.id, userId));
+      });
+
+      // Get updated user data
+      const [updatedUser] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      res.json({
+        message: "Tokens purchased successfully",
+        newBalance: updatedUser.tokenBalance,
+      });
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error purchasing tokens:', err);
+
+      broadcast('ERROR_EVENT', {
+        message: err.message || 'Failed to purchase tokens',
+        type: 'error',
+        source: '/api/tokens/purchase',
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      });
+
+      res.status(500).json({
+        message: "Failed to purchase tokens",
+      });
+    }
+  });
 
   // Task routes
   app.get("/api/tasks", requireAuth, async (req: AuthRequest, res: Response) => {
