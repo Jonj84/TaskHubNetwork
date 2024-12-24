@@ -21,6 +21,8 @@ export const tokenPackages = pgTable("token_packages", {
   isPopular: boolean("is_popular").default(false),
   stripeProductId: text("stripe_product_id"),
   stripePriceId: text("stripe_price_id"),
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
