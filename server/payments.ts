@@ -29,7 +29,8 @@ export async function createStripeSession(req: Request, res: Response) {
     console.log('Creating Stripe session:', {
       amount,
       priceInCents,
-      baseUrl
+      baseUrl,
+      userId: (req as any).user?.id
     });
 
     // Create Stripe checkout session
@@ -59,12 +60,16 @@ export async function createStripeSession(req: Request, res: Response) {
 
     console.log('Stripe session created:', {
       sessionId: session.id,
+      url: session.url,
       success_url: session.success_url,
       cancel_url: session.cancel_url
     });
 
-    // Return session ID only since we're using Stripe.js redirectToCheckout
-    res.json({ sessionId: session.id });
+    // Return the checkout URL directly
+    res.json({ 
+      checkoutUrl: session.url,
+      sessionId: session.id 
+    });
   } catch (error: any) {
     console.error("Stripe session creation error:", {
       error: error.message,
@@ -75,17 +80,17 @@ export async function createStripeSession(req: Request, res: Response) {
 
     // Format Stripe errors appropriately
     if (error.type?.startsWith('Stripe')) {
-      res.status(400).json({ 
+      return res.status(400).json({ 
         message: error.message,
         code: error.code,
         type: error.type
       });
-    } else {
-      res.status(500).json({ 
-        message: error.message || "Failed to create payment session",
-        code: 'INTERNAL_ERROR'
-      });
     }
+
+    return res.status(500).json({ 
+      message: error.message || "Failed to create payment session",
+      code: 'INTERNAL_ERROR'
+    });
   }
 }
 

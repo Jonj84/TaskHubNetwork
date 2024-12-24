@@ -13,11 +13,7 @@ import { Input } from '@/components/ui/input';
 import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Percent } from 'lucide-react';
-import { loadStripe } from '@stripe/stripe-js';
 import { logErrorToServer } from '@/lib/errorLogging';
-
-// Ensure Stripe is initialized with the public key
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
 interface PriceInfo {
   basePrice: number;
@@ -89,7 +85,8 @@ export default function TokenMarketplace() {
         throw new Error('Please enter a valid amount between 1 and 10,000 tokens');
       }
 
-      // Create checkout session
+      console.log('Initiating purchase for', tokenAmount, 'tokens');
+
       const response = await fetch('/api/tokens/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,24 +99,30 @@ export default function TokenMarketplace() {
         throw new Error(errorText);
       }
 
-      const { sessionId } = await response.json();
+      const { checkoutUrl } = await response.json();
 
-      // Initialize Stripe
-      const stripe = await stripePromise;
-      if (!stripe) {
-        throw new Error('Failed to initialize Stripe. Please check your configuration.');
+      if (!checkoutUrl) {
+        throw new Error('No checkout URL received from server');
       }
 
-      // Redirect to Stripe checkout
-      const { error } = await stripe.redirectToCheckout({ sessionId });
+      console.log('Opening Stripe checkout URL:', checkoutUrl);
 
-      if (error) {
-        throw error;
+      // Open Stripe checkout in a new window
+      const checkoutWindow = window.open(checkoutUrl, '_blank');
+
+      if (!checkoutWindow) {
+        throw new Error('Failed to open checkout window. Please allow popups for this site.');
       }
+
+      toast({
+        title: 'Checkout Opened',
+        description: 'Complete your purchase in the new window.',
+      });
 
     } catch (error: any) {
       console.error('[Token purchase failed] Error:', error);
       await logErrorToServer(error, 'token_purchase_failed');
+
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
@@ -130,12 +133,12 @@ export default function TokenMarketplace() {
     }
   };
 
+  const isValidAmount = (amount: number) => amount >= 1 && amount <= 10000;
+
   const handleAmountChange = (value: number) => {
     const clampedValue = Math.min(Math.max(Math.round(value), 1), 10000);
     setTokenAmount(clampedValue);
   };
-
-  const isValidAmount = (amount: number) => amount >= 1 && amount <= 10000;
 
   return (
     <div className="container mx-auto py-8 px-4">
