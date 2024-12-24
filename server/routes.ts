@@ -5,6 +5,8 @@ import { db } from "@db";
 import { tasks, tokenTransactions, users, tokenPackages } from "@db/schema";
 import { desc, eq } from "drizzle-orm";
 import { insertTaskSchema } from "@db/schema";
+import { createStripeSession, handleStripeWebhook, createCryptoPayment } from "./payments";
+import express from "express";
 
 // Extend Express Request type to include authenticated user
 interface AuthRequest extends Request {
@@ -14,6 +16,14 @@ interface AuthRequest extends Request {
     tokenBalance: number;
   };
 }
+
+// Middleware to ensure user is authenticated
+const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+  next();
+};
 
 export function registerRoutes(app: Express): Server {
   // First create the HTTP server
@@ -39,13 +49,17 @@ export function registerRoutes(app: Express): Server {
     });
   });
 
-  // Middleware to ensure user is authenticated
-  const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Authentication required" });
-    }
-    next();
-  };
+  // Add the Stripe webhook endpoint
+  // This needs to be before the json middleware to properly verify signatures
+  app.post(
+    "/api/webhooks/stripe/we_1QZXXeDP8A1L3VjbvGyrmWGf",
+    express.raw({ type: "application/json" }),
+    handleStripeWebhook
+  );
+
+  // Payment endpoints
+  app.post("/api/payments/create-session", requireAuth, createStripeSession);
+  app.post("/api/payments/crypto", requireAuth, createCryptoPayment);
 
   // Token purchase endpoint
   app.post("/api/tokens/purchase", requireAuth, async (req: AuthRequest, res: Response) => {
