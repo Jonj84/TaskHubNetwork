@@ -1,6 +1,5 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { type Server } from "http";
-import { blockchainService } from "../client/src/lib/blockchain/BlockchainService";
 
 // Store active connections
 const clients = new Set<WebSocket>();
@@ -39,7 +38,6 @@ export function setupWebSocket(server: Server) {
   wss.on("connection", (ws) => {
     // Add new client to the set
     clients.add(ws);
-    blockchainService.addPeer(ws);
 
     // Keep connection alive with ping/pong
     const pingInterval = setInterval(() => {
@@ -53,15 +51,9 @@ export function setupWebSocket(server: Server) {
       try {
         const message = JSON.parse(data.toString());
 
-        switch (message.type) {
-          case 'NEW_TRANSACTION':
-            // Broadcast new transaction to all peers
-            broadcast('NEW_TRANSACTION', message.data);
-            break;
-          case 'CHAIN_UPDATE':
-            // Broadcast chain updates to all peers
-            broadcast('CHAIN_UPDATE', message.data);
-            break;
+        if (message.type === 'ERROR_EVENT') {
+          // Broadcast error events to all connected clients
+          broadcast('ERROR_EVENT', message.data);
         }
       } catch (error) {
         console.error('Error processing message:', error);
@@ -71,7 +63,6 @@ export function setupWebSocket(server: Server) {
     // Handle client disconnect
     ws.on("close", () => {
       clients.delete(ws);
-      blockchainService.removePeer(ws);
       clearInterval(pingInterval);
     });
 
@@ -79,16 +70,9 @@ export function setupWebSocket(server: Server) {
     ws.on("error", (error) => {
       console.error("WebSocket error:", error);
       clients.delete(ws);
-      blockchainService.removePeer(ws);
       clearInterval(pingInterval);
       ws.terminate();
     });
-
-    // Send initial chain state
-    ws.send(JSON.stringify({ 
-      type: 'CHAIN_UPDATE', 
-      data: blockchainService.getAllTransactions() 
-    }));
   });
 
   return { broadcast };

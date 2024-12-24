@@ -22,6 +22,23 @@ export function registerRoutes(app: Express): Server {
   // Setup WebSocket server after HTTP server is created
   const { broadcast } = setupWebSocket(httpServer);
 
+  // Error handling middleware
+  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    console.error('Error:', err);
+
+    // Broadcast error to all connected clients
+    broadcast('ERROR_EVENT', {
+      message: err.message,
+      type: 'error',
+      source: req.path,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    });
+
+    res.status(500).json({
+      message: err.message || 'Internal Server Error',
+    });
+  });
+
   // Middleware to ensure user is authenticated
   const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.isAuthenticated()) {
@@ -37,8 +54,15 @@ export function registerRoutes(app: Express): Server {
         orderBy: desc(tasks.created_at),
       });
       res.json(allTasks);
-    } catch (error) {
-      console.error('Error fetching tasks:', error);
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error fetching tasks:', err);
+      broadcast('ERROR_EVENT', {
+        message: err.message || 'Failed to fetch tasks',
+        type: 'error',
+        source: '/api/tasks',
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      });
       res.status(500).json({ message: "Failed to fetch tasks" });
     }
   });
@@ -68,14 +92,22 @@ export function registerRoutes(app: Express): Server {
 
       // Send the created task back
       res.status(200).json(newTask);
-    } catch (error: any) {
-      console.error('Error creating task:', error);
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error creating task:', err);
 
-      if (error.errors) {
+      broadcast('ERROR_EVENT', {
+        message: err.message || 'Failed to create task',
+        type: 'error',
+        source: '/api/tasks',
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      });
+
+      if ('errors' in err) {
         // Validation error
         return res.status(400).json({
           message: "Invalid task data",
-          errors: error.errors,
+          errors: err.errors,
         });
       }
 
