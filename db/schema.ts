@@ -21,8 +21,6 @@ export const tokenPackages = pgTable("token_packages", {
   isPopular: boolean("is_popular").default(false),
   stripeProductId: text("stripe_product_id"),
   stripePriceId: text("stripe_price_id"),
-  stripeProductId: text("stripe_product_id"),
-  stripePriceId: text("stripe_price_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -110,3 +108,6 @@ export type TokenTransaction = typeof tokenTransactions.$inferSelect;
 export type InsertTokenTransaction = typeof tokenTransactions.$inferInsert;
 export type TokenPackage = typeof tokenPackages.$inferSelect;
 export type InsertTokenPackage = typeof tokenPackages.$inferInsert;
+
+// SQL to insert default token packages (this needs to be added based on your specific requirements)
+// Example:  INSERT INTO token_packages (name, description, tokenAmount, price, features, isPopular, stripeProductId, stripePriceId) VALUES ('Basic Package', '100 Tokens', 100, 1000, '{"feature1": true}', false, 'prod_...', 'price_...');
