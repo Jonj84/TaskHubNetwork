@@ -15,6 +15,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertTriangle } from "lucide-react";
 
 export default function WalletPage() {
   const { user } = useUser();
@@ -22,22 +24,21 @@ export default function WalletPage() {
   const { toast } = useToast();
   const [amount, setAmount] = useState(0);
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handlePurchase = async () => {
+    if (amount <= 0) {
+      setError("Please enter a valid amount");
+      return;
+    }
+
     try {
+      setError(null);
       setIsPurchasing(true);
       await purchaseTokens(amount);
       setAmount(0);
-      toast({
-        title: 'Success',
-        description: `Successfully purchased ${amount} tokens`,
-      });
     } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message,
-      });
+      setError(error.message);
     } finally {
       setIsPurchasing(false);
     }
@@ -60,25 +61,36 @@ export default function WalletPage() {
             <CardTitle>Purchase Tokens</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {error && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
             <Input
               type="number"
               placeholder="Amount"
               value={amount}
-              onChange={(e) => setAmount(Number(e.target.value))}
+              onChange={(e) => {
+                setError(null);
+                setAmount(Number(e.target.value));
+              }}
               disabled={isPurchasing}
+              min="0"
             />
             <Button 
               onClick={handlePurchase} 
               className="w-full"
-              disabled={isPurchasing}
+              disabled={isPurchasing || amount <= 0}
             >
               {isPurchasing ? (
                 <>
                   <LoadingSpinner size="sm" className="mr-2" />
-                  Processing...
+                  Processing Transaction...
                 </>
               ) : (
-                'Purchase'
+                'Purchase Tokens'
               )}
             </Button>
           </CardContent>
@@ -93,6 +105,10 @@ export default function WalletPage() {
           {isLoadingTransactions ? (
             <div className="flex justify-center items-center py-8">
               <LoadingSpinner size="lg" />
+            </div>
+          ) : transactions.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No transactions yet
             </div>
           ) : (
             <Table>
