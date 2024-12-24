@@ -31,9 +31,12 @@ export default function PaymentFlow({
   const handleCardPayment = async () => {
     try {
       setIsProcessing(true);
+
+      // Create the Stripe session
       const response = await fetch('/api/payments/create-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ amount, packageId }),
       });
 
@@ -42,23 +45,23 @@ export default function PaymentFlow({
       }
 
       const { sessionId } = await response.json();
+
+      // Initialize Stripe
       const stripe = await loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
-      
       if (!stripe) {
         throw new Error('Failed to load Stripe');
       }
 
-      const { error } = await stripe.redirectToCheckout({ sessionId });
-      if (error) {
-        throw error;
-      }
+      // Use redirectToCheckout with relative URLs
+      await stripe.redirectToCheckout({
+        sessionId,
+      });
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Payment Error',
-        description: error.message,
+        description: error.message || 'Failed to process payment',
       });
-    } finally {
       setIsProcessing(false);
     }
   };
@@ -69,6 +72,7 @@ export default function PaymentFlow({
       const response = await fetch('/api/payments/crypto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ amount, packageId }),
       });
 
@@ -76,10 +80,8 @@ export default function PaymentFlow({
         throw new Error(await response.text());
       }
 
-      const { paymentAddress, amount: cryptoAmount } = await response.json();
-      
-      // Open crypto payment modal with QR code
-      // For now, we'll just show the address in a toast
+      const { paymentAddress, cryptoAmount } = await response.json();
+
       toast({
         title: 'Crypto Payment',
         description: `Please send ${cryptoAmount} to ${paymentAddress}`,
@@ -88,7 +90,7 @@ export default function PaymentFlow({
       toast({
         variant: 'destructive',
         title: 'Payment Error',
-        description: error.message,
+        description: error.message || 'Failed to generate crypto payment',
       });
     } finally {
       setIsProcessing(false);

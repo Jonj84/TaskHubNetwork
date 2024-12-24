@@ -35,6 +35,7 @@ export async function createStripeSession(req: Request, res: Response) {
       return res.status(404).json({ message: "Package not found" });
     }
 
+    // Create a Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: [
@@ -51,8 +52,9 @@ export async function createStripeSession(req: Request, res: Response) {
         },
       ],
       mode: "payment",
-      success_url: `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/marketplace?success=true`,
-      cancel_url: `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/marketplace?canceled=true`,
+      // Use relative URLs to avoid CORS and protocol issues
+      success_url: `/marketplace?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `/marketplace?canceled=true`,
       allow_promotion_codes: true,
       billing_address_collection: 'required',
       metadata: {
@@ -75,7 +77,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
   }
 
   try {
-    const event = stripe.webhooks.constructEvent(
+    const event = stripe!.webhooks.constructEvent(
       req.body,
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
@@ -119,6 +121,8 @@ export async function handleStripeWebhook(req: Request, res: Response) {
           })
           .where(eq(users.id, parseInt(userId)));
       });
+
+      console.log(`Processed payment for user ${userId}, package ${packageId}`);
     }
 
     res.json({ received: true });
