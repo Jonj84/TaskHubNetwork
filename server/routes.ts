@@ -9,6 +9,7 @@ import { createStripeSession, handleStripeWebhook, createCryptoPayment } from ".
 import express from "express";
 import { validatePackageMiddleware } from './middleware/packageValidation';
 import { avg, count, sum } from "drizzle-orm";
+import { setupAuth } from "./auth";
 
 // Extend Express Request type to include authenticated user
 interface AuthRequest extends Request {
@@ -27,22 +28,17 @@ const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
   next();
 };
 
-// Placeholder for actual validation logic (needs to be implemented separately)
-async function validateTokenPackage(packageData: any, existingPackages: any[]): Promise<boolean> {
-    //Add your validation logic here.  This is a placeholder.
-    return true; // Replace with actual validation result
-}
-
-
 export function registerRoutes(app: Express): Server {
   // First create the HTTP server
   const httpServer = createServer(app);
+
+  // Setup auth first
+  setupAuth(app);
 
   // Setup WebSocket server after HTTP server is created
   const { broadcast } = setupWebSocket(httpServer);
 
   // Add the Stripe webhook endpoint before any body parsing middleware
-  // This needs raw body for proper signature verification
   app.post(
     "/api/webhooks/stripe",
     express.raw({ type: 'application/json' }),
@@ -52,23 +48,6 @@ export function registerRoutes(app: Express): Server {
   // Standard routes with JSON parsing
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
-
-  // Error handling middleware
-  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    console.error('Error:', err);
-
-    // Broadcast error to all connected clients
-    broadcast('ERROR_EVENT', {
-      message: err.message,
-      type: 'error',
-      source: req.path,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    });
-
-    res.status(500).json({
-      message: err.message || 'Internal Server Error',
-    });
-  });
 
   // Payment endpoints
   app.post("/api/payments/create-session", requireAuth, createStripeSession);
@@ -429,5 +408,28 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Error handling middleware
+  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    console.error('Error:', err);
+
+    // Broadcast error to all connected clients
+    broadcast('ERROR_EVENT', {
+      message: err.message,
+      type: 'error',
+      source: req.path,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    });
+
+    res.status(500).json({
+      message: err.message || 'Internal Server Error',
+    });
+  });
+
+
   return httpServer;
+}
+
+async function validateTokenPackage(packageData: any, existingPackages: any[]): Promise<boolean> {
+    //Add your validation logic here.  This is a placeholder.
+    return true; // Replace with actual validation result
 }
