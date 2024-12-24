@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useTokens } from '@/hooks/use-tokens';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,7 +31,7 @@ export default function TokenMarketplace() {
 
   // Calculate price with volume discounts
   const calculatePrice = (amount: number): PriceInfo => {
-    const basePrice = amount * 0.1; // $0.10 per token
+    const basePrice = amount; // $1.00 per token
     let discount = 0;
 
     if (amount >= 1000) {
@@ -71,15 +70,19 @@ export default function TokenMarketplace() {
 
       const { sessionId } = await response.json();
 
-      // Redirect to Stripe Checkout
+      // Get Stripe instance
       const stripe = await stripePromise;
       if (!stripe) {
         throw new Error('Failed to load Stripe');
       }
 
-      const { error } = await stripe.redirectToCheckout({ sessionId });
-      if (error) {
-        throw error;
+      // Redirect to Stripe Checkout
+      const result = await stripe.redirectToCheckout({
+        sessionId,
+      });
+
+      if (result.error) {
+        throw new Error(result.error.message);
       }
     } catch (error: any) {
       toast({

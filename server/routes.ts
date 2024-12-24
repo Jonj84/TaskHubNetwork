@@ -1,12 +1,12 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { setupWebSocket } from "./ws";
 import { db } from "@db";
 import { tokenTransactions, users } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import express from "express";
 import { setupAuth } from "./auth";
 import { createStripeSession, handleStripeWebhook, createCryptoPayment } from "./payments";
+import { setupWebSocket } from "./ws";
 
 // Extend Express Request type to include authenticated user
 interface AuthRequest extends Request {
@@ -29,13 +29,10 @@ export function registerRoutes(app: Express): Server {
   // First create the HTTP server
   const httpServer = createServer(app);
 
-  // Setup WebSocket server after HTTP server is created
+  // Setup WebSocket server
   const { broadcast } = setupWebSocket(httpServer);
 
-  // Setup auth first
-  setupAuth(app);
-
-  // Stripe webhook endpoint - must be before JSON parsing middleware
+  // Stripe webhook endpoint - must be before body parsing middleware
   app.post(
     "/api/webhooks/stripe",
     express.raw({ type: "application/json" }),
@@ -46,8 +43,29 @@ export function registerRoutes(app: Express): Server {
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
 
+  // Setup auth after body parsing middleware
+  setupAuth(app);
+
   // Token purchase endpoints
-  app.post("/api/tokens/purchase", requireAuth, createStripeSession);
+  app.post("/api/tokens/purchase", requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const result = await createStripeSession(req, res);
+      // Broadcast successful session creation
+      broadcast('PAYMENT_EVENT', {
+        type: 'SESSION_CREATED',
+        userId: req.user?.id,
+        amount: req.body.amount
+      });
+      return result;
+    } catch (error: any) {
+      console.error('Token purchase error:', error);
+      return res.status(500).json({ 
+        message: error.message || 'Failed to create payment session'
+      });
+    }
+  });
+
+  // Crypto payment endpoint
   app.post("/api/tokens/purchase/crypto", requireAuth, createCryptoPayment);
 
   // Transaction history endpoint

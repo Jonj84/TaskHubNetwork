@@ -19,25 +19,16 @@ export function setupWebSocket(server: Server) {
 
   // Handle upgrade manually to filter out Vite HMR
   server.on('upgrade', (request, socket, head) => {
-    try {
-      const pathname = new URL(request.url!, `http://${request.headers.host}`).pathname;
-      const protocol = request.headers['sec-websocket-protocol'];
+    const protocol = request.headers['sec-websocket-protocol'];
 
-      // Skip Vite HMR connections
-      if (protocol === 'vite-hmr') {
-        return;
-      }
-
-      // Only handle /api/errors endpoint
-      if (pathname === '/api/errors') {
-        wss.handleUpgrade(request, socket, head, (ws) => {
-          wss.emit('connection', ws, request);
-        });
-      }
-    } catch (error) {
-      console.error('WebSocket upgrade error:', error);
-      socket.destroy();
+    // Skip Vite HMR connections
+    if (protocol === 'vite-hmr') {
+      return;
     }
+
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
   });
 
   wss.on("connection", (ws) => {
@@ -56,11 +47,7 @@ export function setupWebSocket(server: Server) {
     ws.on("message", (data) => {
       try {
         const message = JSON.parse(data.toString());
-
-        if (message.type === 'ERROR_EVENT') {
-          // Broadcast error events to all connected clients
-          broadcast('ERROR_EVENT', message.data);
-        }
+        broadcast(message.type, message.data);
       } catch (error) {
         console.error('Error processing message:', error);
       }

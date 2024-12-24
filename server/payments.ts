@@ -4,35 +4,35 @@ import { db } from "@db";
 import { tokenTransactions, users } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
 
-const stripe = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-12-18.acacia" })
-  : null;
-
-if (!stripe) {
-  console.error("Warning: STRIPE_SECRET_KEY not configured");
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error("STRIPE_SECRET_KEY must be set");
 }
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2024-12-18"
+});
 
 // Define pricing tiers
 const PRICING_TIERS = {
   base: {
     name: "Base Tier",
-    pricePerToken: 10, // $0.10 per token in cents
+    pricePerToken: 100, // $1.00 per token in cents
     minTokens: 1,
     maxTokens: 499,
     discount: 0
   },
   silver: {
     name: "Silver Tier",
-    pricePerToken: 9, // $0.09 per token in cents
+    pricePerToken: 90, // $0.90 per token in cents
     minTokens: 500,
     maxTokens: 999,
     discount: 10
   },
   gold: {
     name: "Gold Tier",
-    pricePerToken: 8, // $0.08 per token in cents
+    pricePerToken: 80, // $0.80 per token in cents
     minTokens: 1000,
-    maxTokens: 10000,
+    maxTokens: Infinity,
     discount: 20
   }
 };
@@ -54,7 +54,7 @@ function calculateTokenPrice(amount: number): {
   }
 
   const { pricePerToken, discount } = PRICING_TIERS[tier];
-  const priceInCents = Math.floor(amount * pricePerToken);
+  const priceInCents = Math.floor(amount * pricePerToken * (1 - discount / 100));
 
   return { 
     priceInCents,
@@ -63,43 +63,8 @@ function calculateTokenPrice(amount: number): {
   };
 }
 
-// Create or get Stripe product for token purchase
-async function getOrCreateTokenProduct(): Promise<string> {
-  if (!stripe) {
-    throw new Error("Stripe is not configured");
-  }
-
-  const productName = "Platform Tokens";
-
-  // Search for existing product
-  const products = await stripe.products.list({
-    limit: 1,
-    active: true
-  });
-
-  let product;
-  if (products.data.length > 0) {
-    product = products.data[0];
-  } else {
-    // Create new product if none exists
-    product = await stripe.products.create({
-      name: productName,
-      description: "Platform tokens with volume discounts",
-      metadata: {
-        type: "platform_token"
-      }
-    });
-  }
-
-  return product.id;
-}
-
 export async function createStripeSession(req: Request, res: Response) {
   try {
-    if (!stripe) {
-      return res.status(500).json({ message: "Stripe is not configured" });
-    }
-
     const { amount } = req.body;
     const userId = req.user?.id;
 
@@ -114,22 +79,20 @@ export async function createStripeSession(req: Request, res: Response) {
       });
     }
 
-    // Get product ID
-    const productId = await getOrCreateTokenProduct();
-
     // Calculate price with volume discount
     const { priceInCents, discount, tier } = calculateTokenPrice(amount);
 
-    // Create a one-time price
+    // Create a product for this purchase
+    const product = await stripe.products.create({
+      name: `${amount} Platform Tokens`,
+      description: `Purchase of ${amount} tokens with ${discount}% volume discount`,
+    });
+
+    // Create a price for this product
     const price = await stripe.prices.create({
-      product: productId,
+      product: product.id,
       unit_amount: priceInCents,
       currency: "usd",
-      metadata: {
-        tokenAmount: amount.toString(),
-        discount: discount.toString(),
-        tier
-      },
     });
 
     // Get the base URL dynamically
@@ -150,8 +113,8 @@ export async function createStripeSession(req: Request, res: Response) {
       metadata: {
         userId: userId.toString(),
         tokenAmount: amount.toString(),
-        discount: discount.toString(),
-        tier
+        tier,
+        discount: discount.toString()
       },
     });
 
@@ -159,23 +122,26 @@ export async function createStripeSession(req: Request, res: Response) {
       sessionId: session.id,
       discount,
       tier,
-      finalPrice: priceInCents / 100, // Convert to dollars for display
+      finalPrice: priceInCents / 100,
       basePrice: (amount * PRICING_TIERS.base.pricePerToken) / 100
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Stripe session creation error:", error);
-    res.status(500).json({ message: "Failed to create payment session" });
+    res.status(500).json({ 
+      message: error.message || "Failed to create payment session" 
+    });
   }
 }
 
 export async function handleStripeWebhook(req: Request, res: Response) {
-  const sig = req.headers["stripe-signature"];
-  if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
-    return res.status(400).json({ message: "Missing stripe signature" });
-  }
-
   try {
-    const event = stripe!.webhooks.constructEvent(
+    const sig = req.headers["stripe-signature"];
+
+    if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
+      return res.status(400).json({ message: "Missing required Stripe configuration" });
+    }
+
+    const event = stripe.webhooks.constructEvent(
       req.body,
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
@@ -183,10 +149,10 @@ export async function handleStripeWebhook(req: Request, res: Response) {
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      const { userId, tokenAmount, discount, tier } = session.metadata || {};
+      const { userId, tokenAmount } = session.metadata || {};
 
       if (!userId || !tokenAmount) {
-        throw new Error("Missing metadata");
+        throw new Error("Missing metadata in Stripe session");
       }
 
       // Record the purchase and update balance
@@ -209,7 +175,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
           .where(eq(users.id, parseInt(userId)));
       });
 
-      console.log(`Processed payment for user ${userId}, amount: ${tokenAmount} tokens, tier: ${tier}, discount: ${discount}%`);
+      console.log(`Successfully processed payment for user ${userId}, amount: ${tokenAmount} tokens`);
     }
 
     res.json({ received: true });
@@ -235,15 +201,11 @@ export async function createCryptoPayment(req: Request, res: Response) {
     }
 
     const { priceInCents, discount, tier } = calculateTokenPrice(amount);
+    const priceInDollars = priceInCents / 100;
 
-    // For demo purposes, we'll just return a static address
-    // In a real implementation, you would:
-    // 1. Generate a unique deposit address
-    // 2. Set up webhooks to monitor for payments
-    // 3. Convert fiat amount to crypto
     res.json({
-      paymentAddress: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
-      amount: priceInCents / 100, // Convert back to dollars for display
+      paymentAddress: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e", // Demo address
+      amount: priceInDollars,
       tokenAmount: amount,
       currency: "ETH",
       tier,
