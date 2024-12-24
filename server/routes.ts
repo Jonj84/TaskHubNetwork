@@ -39,6 +39,26 @@ function logError(error: any, req: Request): ErrorLog {
   return errorLog;
 }
 
+// Calculate price with volume discounts
+function calculatePrice(amount: number) {
+  const basePrice = amount;
+  let discount = 0;
+
+  if (amount >= 1000) {
+    discount = 20;
+  } else if (amount >= 500) {
+    discount = 10;
+  }
+
+  const finalPrice = basePrice * (1 - discount / 100);
+
+  return {
+    basePrice,
+    discount,
+    finalPrice: Math.round(finalPrice * 100) / 100
+  };
+}
+
 export function registerRoutes(app: Express): Server {
   // Stripe webhook endpoint - must be before body parsing middleware
   app.post(
@@ -55,6 +75,29 @@ export function registerRoutes(app: Express): Server {
   app.post('/api/log/error', (req: Request, res: Response) => {
     const errorLog = logError(req.body, req);
     res.status(200).json({ message: 'Error logged successfully', log: errorLog });
+  });
+
+  // Price calculation endpoint
+  app.post('/api/tokens/calculate-price', (req: Request, res: Response) => {
+    try {
+      const { amount } = req.body;
+
+      if (!amount || isNaN(amount) || amount < 1 || amount > 10000) {
+        return res.status(400).json({
+          message: 'Invalid amount. Must be between 1 and 10,000',
+          code: 'INVALID_AMOUNT'
+        });
+      }
+
+      const priceInfo = calculatePrice(amount);
+      res.json(priceInfo);
+    } catch (error: any) {
+      const errorLog = logError(error, req);
+      res.status(500).json({
+        message: 'Failed to calculate price',
+        error: errorLog
+      });
+    }
   });
 
   // Token purchase endpoint

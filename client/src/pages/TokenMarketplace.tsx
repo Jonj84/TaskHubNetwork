@@ -27,14 +27,19 @@ interface PriceInfo {
 
 export default function TokenMarketplace() {
   const { toast } = useToast();
-  const [tokenAmount, setTokenAmount] = useState(100);
+  const [tokenAmount, setTokenAmount] = useState<number>(100);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [pricing, setPricing] = useState<PriceInfo>({ basePrice: 10, discount: 0, finalPrice: 10 });
+  const [pricing, setPricing] = useState<PriceInfo>({ basePrice: 0, discount: 0, finalPrice: 0 });
+  const [isPriceLoading, setIsPriceLoading] = useState(false);
 
+  // Debounced price calculation
   useEffect(() => {
     const calculatePrice = async () => {
       try {
+        setIsPriceLoading(true);
+
         if (!isValidAmount(tokenAmount)) {
+          setPricing({ basePrice: 0, discount: 0, finalPrice: 0 });
           return;
         }
 
@@ -58,11 +63,17 @@ export default function TokenMarketplace() {
           title: 'Price Calculation Error',
           description: 'Failed to calculate token price. Please try again.',
         });
+      } finally {
+        setIsPriceLoading(false);
       }
     };
 
-    calculatePrice();
-  }, [tokenAmount]);
+    const timeoutId = setTimeout(() => {
+      calculatePrice();
+    }, 300); // Debounce for 300ms
+
+    return () => clearTimeout(timeoutId);
+  }, [tokenAmount, toast]);
 
   const handlePurchase = async () => {
     try {
@@ -140,7 +151,7 @@ export default function TokenMarketplace() {
             <div className="flex items-center gap-4">
               <Slider
                 value={[tokenAmount]}
-                onValueChange={(value) => handleAmountChange(value[0])}
+                onValueChange={(values) => handleAmountChange(values[0])}
                 max={10000}
                 min={1}
                 step={1}
