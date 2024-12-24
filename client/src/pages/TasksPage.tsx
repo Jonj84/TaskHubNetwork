@@ -32,7 +32,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import type { Task, TaskType } from '../types';
+import type { Task } from '../types';
 
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required').max(100, 'Title is too long'),
@@ -63,6 +63,15 @@ export default function TasksPage() {
   });
 
   const handleCreateTask = async (data: TaskFormData) => {
+    if (!user) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'You must be logged in to create tasks',
+      });
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       await createTask(data);
@@ -76,7 +85,7 @@ export default function TasksPage() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message,
+        description: error.message || 'Failed to create task',
       });
     } finally {
       setIsSubmitting(false);
@@ -91,10 +100,12 @@ export default function TasksPage() {
           <DialogTrigger asChild>
             <Button>Create New Task</Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Create New Task</DialogTitle>
-              <DialogDescription>Fill in the details below to create a new task.</DialogDescription>
+              <DialogDescription>
+                Fill in the details below to create a new task.
+              </DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(handleCreateTask)} className="space-y-4">
@@ -105,7 +116,11 @@ export default function TasksPage() {
                     <FormItem>
                       <FormLabel>Title</FormLabel>
                       <FormControl>
-                        <Input placeholder="Task Title" {...field} />
+                        <Input 
+                          placeholder="Task Title" 
+                          {...field}
+                          aria-label="Task title"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -118,7 +133,11 @@ export default function TasksPage() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Task Description" {...field} />
+                        <Textarea 
+                          placeholder="Task Description" 
+                          {...field}
+                          aria-label="Task description"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -130,17 +149,20 @@ export default function TasksPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Task Type</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
+                      <FormControl>
+                        <Select
+                          defaultValue={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger aria-label="Select task type">
                             <SelectValue placeholder="Select task type" />
                           </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="manual">Manual</SelectItem>
-                          <SelectItem value="computational">Computational</SelectItem>
-                        </SelectContent>
-                      </Select>
+                          <SelectContent>
+                            <SelectItem value="manual">Manual</SelectItem>
+                            <SelectItem value="computational">Computational</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -154,9 +176,12 @@ export default function TasksPage() {
                       <FormControl>
                         <Input 
                           type="number" 
-                          placeholder="Reward amount" 
+                          placeholder="Reward amount"
+                          min={1}
+                          max={1000}
                           {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))} 
+                          onChange={(e) => field.onChange(Number(e.target.value))}
+                          aria-label="Task reward amount"
                         />
                       </FormControl>
                       <FormMessage />
@@ -170,13 +195,22 @@ export default function TasksPage() {
                     <FormItem>
                       <FormLabel>Required Proof</FormLabel>
                       <FormControl>
-                        <Input placeholder="What proof is required?" {...field} />
+                        <Input 
+                          placeholder="What proof is required?" 
+                          {...field}
+                          aria-label="Required proof"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                <Button 
+                  type="submit" 
+                  className="w-full" 
+                  disabled={isSubmitting}
+                  aria-label={isSubmitting ? 'Creating task...' : 'Create task'}
+                >
                   {isSubmitting ? 'Creating...' : 'Create Task'}
                 </Button>
               </form>
