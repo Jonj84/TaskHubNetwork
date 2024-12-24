@@ -5,7 +5,7 @@ import { tokenTransactions, users, tokenPackages } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
 
 const stripe = process.env.STRIPE_SECRET_KEY 
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-01-01" })
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" })
   : null;
 
 if (!stripe) {
