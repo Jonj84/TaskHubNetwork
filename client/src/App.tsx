@@ -8,6 +8,7 @@ import WalletPage from './pages/WalletPage';
 import TokenMarketplace from './pages/TokenMarketplace';
 import TokenHistory from './pages/TokenHistory';
 import TransactionExplorer from './pages/TransactionExplorer';
+import PaymentResult from './pages/PaymentResult';
 import LoaderDemo from './pages/LoaderDemo';
 import NavigationBar from './components/NavigationBar';
 import ErrorDashboard from './components/ErrorDashboard';
@@ -33,6 +34,18 @@ function App() {
           <p className="text-destructive">Failed to load user profile</p>
           <p className="text-sm text-muted-foreground mt-2">{error.message}</p>
         </div>
+      </div>
+    );
+  }
+
+  // Payment result pages should be accessible without authentication
+  if (window.location.pathname.startsWith('/payment/')) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Switch>
+          <Route path="/payment/success" component={PaymentResult} />
+          <Route path="/payment/cancel" component={PaymentResult} />
+        </Switch>
       </div>
     );
   }

@@ -90,7 +90,7 @@ export default function TokenMarketplace() {
         throw new Error('Please enter a valid amount between 1 and 10,000 tokens');
       }
 
-      // Create checkout session first
+      // Create checkout session
       const response = await fetch('/api/tokens/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,19 +103,17 @@ export default function TokenMarketplace() {
         throw new Error(errorText);
       }
 
-      const { sessionId } = await response.json();
-
-      // Direct URL redirect instead of using Stripe.js
-      const stripe = await getStripe();
-      if (!stripe) {
-        throw new Error('Failed to initialize Stripe');
-      }
+      const { url, sessionId } = await response.json();
 
       // Log the redirect attempt
-      console.log('Redirecting to Stripe checkout:', { sessionId });
+      console.log('Redirecting to Stripe checkout:', { sessionId, url });
 
-      // Use direct window location for redirection
-      window.location.href = `https://checkout.stripe.com/c/pay/${sessionId}`;
+      // Use the direct checkout URL from Stripe
+      if (url) {
+        window.location.href = url;
+      } else {
+        throw new Error('No checkout URL received from server');
+      }
 
     } catch (error: any) {
       console.error('[Token purchase failed] Error:', error);

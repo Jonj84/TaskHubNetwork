@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import express from "express";
-import { createStripeSession, handleStripeWebhook } from "./payments";
+import { createStripeSession, handleStripeWebhook, verifyStripePayment } from "./payments";
 
 // Auth request type
 interface AuthRequest extends Request {
@@ -43,11 +43,14 @@ function logError(error: any, req: Request): ErrorLog {
 function calculatePrice(amount: number) {
   const basePrice = amount;
   let discount = 0;
+  let tier = 'standard';
 
   if (amount >= 1000) {
     discount = 20;
+    tier = 'premium';
   } else if (amount >= 500) {
     discount = 10;
+    tier = 'plus';
   }
 
   const finalPrice = basePrice * (1 - discount / 100);
@@ -55,7 +58,8 @@ function calculatePrice(amount: number) {
   return {
     basePrice,
     discount,
-    finalPrice: Math.round(finalPrice * 100) / 100
+    finalPrice: Math.round(finalPrice * 100) / 100,
+    tier
   };
 }
 
@@ -109,6 +113,25 @@ export function registerRoutes(app: Express): Server {
       console.error('Token purchase error:', errorLog);
       return res.status(500).json({ 
         message: error.message || 'Failed to create payment session',
+        error: errorLog
+      });
+    }
+  });
+
+  // Payment verification endpoint
+  app.get("/api/tokens/verify-payment", async (req, res) => {
+    try {
+      const sessionId = req.query.session_id as string;
+      if (!sessionId) {
+        return res.status(400).json({ message: 'Session ID is required' });
+      }
+
+      await verifyStripePayment(sessionId, res);
+    } catch (error: any) {
+      const errorLog = logError(error, req);
+      console.error('Payment verification error:', errorLog);
+      return res.status(500).json({
+        message: error.message || 'Failed to verify payment',
         error: errorLog
       });
     }

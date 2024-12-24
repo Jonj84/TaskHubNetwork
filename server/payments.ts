@@ -49,10 +49,11 @@ export async function createStripeSession(req: Request, res: Response) {
         },
       ],
       mode: "payment",
-      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/cancel`,
+      success_url: `${baseUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/payment/cancel`,
       metadata: {
         tokenAmount: amount.toString(),
+        userId: (req as any).user?.id?.toString(),
       },
     });
 
@@ -62,8 +63,9 @@ export async function createStripeSession(req: Request, res: Response) {
       cancel_url: session.cancel_url
     });
 
-    // Return session information
+    // Return session ID and URL
     res.json({
+      url: session.url, // Include the direct checkout URL
       sessionId: session.id
     });
   } catch (error: any) {
@@ -90,6 +92,41 @@ export async function createStripeSession(req: Request, res: Response) {
   }
 }
 
+export async function verifyStripePayment(sessionId: string, res: Response) {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (!session) {
+      throw new Error('Payment session not found');
+    }
+
+    // Check payment status
+    if (session.payment_status !== 'paid') {
+      return res.status(400).json({
+        message: 'Payment has not been completed',
+        status: session.payment_status
+      });
+    }
+
+    const { tokenAmount, userId } = session.metadata || {};
+
+    if (!tokenAmount) {
+      throw new Error('Missing token amount in session metadata');
+    }
+
+    // Return success response
+    res.json({
+      success: true,
+      tokenAmount: parseInt(tokenAmount, 10),
+      paymentId: session.payment_intent as string
+    });
+
+  } catch (error: any) {
+    console.error('Payment verification error:', error);
+    throw error;
+  }
+}
+
 export async function handleStripeWebhook(req: Request, res: Response) {
   const sig = req.headers["stripe-signature"];
 
@@ -111,7 +148,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      const { tokenAmount } = session.metadata || {};
+      const { tokenAmount, userId } = session.metadata || {};
 
       if (!tokenAmount) {
         throw new Error("Missing metadata in Stripe session");
@@ -119,8 +156,12 @@ export async function handleStripeWebhook(req: Request, res: Response) {
 
       console.log('Payment completed:', {
         tokenAmount,
+        userId,
         sessionId: session.id
       });
+
+      // TODO: Credit tokens to user account
+      // This will be implemented in the next step
     }
 
     res.json({ received: true });
