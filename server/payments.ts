@@ -51,8 +51,10 @@ export async function createStripeSession(req: Request, res: Response) {
         },
       ],
       mode: "payment",
-      success_url: `${req.protocol}://${req.get("host")}/marketplace?success=true`,
-      cancel_url: `${req.protocol}://${req.get("host")}/marketplace?canceled=true`,
+      success_url: `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/marketplace?success=true`,
+      cancel_url: `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/marketplace?canceled=true`,
+      allow_promotion_codes: true,
+      billing_address_collection: 'required',
       metadata: {
         userId: userId.toString(),
         packageId: packageId.toString(),
