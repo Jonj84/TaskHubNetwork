@@ -85,7 +85,7 @@ export async function createStripeSession(req: Request, res: Response) {
     });
 
     // Get the base URL for success/cancel redirects
-    const baseUrl = process.env.APP_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
@@ -107,7 +107,7 @@ export async function createStripeSession(req: Request, res: Response) {
       },
     });
 
-    // Return session details with pricing information
+    // Return only the sessionId and pricing information
     res.json({
       sessionId: session.id,
       basePrice: amount * BASE_PRICE / 100,

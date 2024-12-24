@@ -16,17 +16,13 @@ import { CreditCard, Bitcoin, Percent } from 'lucide-react';
 import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// Initialize Stripe outside component
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+
 interface PaymentFlowProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   amount?: number;
-}
-
-interface PricingInfo {
-  basePrice: number;
-  discount: number;
-  finalPrice: number;
-  tier: string;
 }
 
 export default function PaymentFlow({
@@ -36,9 +32,8 @@ export default function PaymentFlow({
 }: PaymentFlowProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'crypto' | null>(null);
   const [tokenAmount, setTokenAmount] = useState<number>(defaultAmount || 100);
-  const [pricing, setPricing] = useState<PricingInfo>({
+  const [pricing, setPricing] = useState({
     basePrice: 0,
     discount: 0,
     finalPrice: 0,
@@ -102,18 +97,19 @@ export default function PaymentFlow({
       }
 
       const { sessionId } = await response.json();
-      const stripe = await loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+      const stripe = await stripePromise;
 
       if (!stripe) {
         throw new Error('Failed to load Stripe');
       }
 
-      // Handle the redirect
       const { error } = await stripe.redirectToCheckout({ sessionId });
 
       if (error) {
-        throw new Error(error.message);
+        throw error;
       }
+
+      onOpenChange(false);
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -160,7 +156,6 @@ export default function PaymentFlow({
               />
             </div>
 
-            {/* Volume discount information */}
             <div className="text-sm text-muted-foreground">
               <div>Volume Discounts:</div>
               <div>• 500+ tokens: 10% off</div>

@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Percent } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 
+// Initialize Stripe outside of component
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
 interface PriceInfo {
@@ -70,19 +71,16 @@ export default function TokenMarketplace() {
 
       const { sessionId } = await response.json();
 
-      // Get Stripe instance
+      // Get Stripe instance and redirect to checkout
       const stripe = await stripePromise;
       if (!stripe) {
         throw new Error('Failed to load Stripe');
       }
 
-      // Redirect to Stripe Checkout
-      const result = await stripe.redirectToCheckout({
-        sessionId,
-      });
+      const { error } = await stripe.redirectToCheckout({ sessionId });
 
-      if (result.error) {
-        throw new Error(result.error.message);
+      if (error) {
+        throw new Error(error.message);
       }
     } catch (error: any) {
       toast({
@@ -90,6 +88,7 @@ export default function TokenMarketplace() {
         title: 'Purchase Failed',
         description: error.message || 'Failed to process payment',
       });
+    } finally {
       setIsProcessing(false);
     }
   };
