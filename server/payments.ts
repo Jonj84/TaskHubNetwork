@@ -4,16 +4,19 @@ import { db } from "@db";
 import { tokenTransactions, users, tokenPackages } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("STRIPE_SECRET_KEY must be set");
-}
+const stripe = process.env.STRIPE_SECRET_KEY 
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-01-01" })
+  : null;
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-01-01",
-});
+if (!stripe) {
+  console.error("Warning: STRIPE_SECRET_KEY not configured");
+}
 
 export async function createStripeSession(req: Request, res: Response) {
   try {
+    if (!stripe) {
+      return res.status(500).json({ message: "Stripe is not configured" });
+    }
     const { amount, packageId } = req.body;
     const userId = req.user?.id;
 
