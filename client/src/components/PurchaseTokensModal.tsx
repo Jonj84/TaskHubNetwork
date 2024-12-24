@@ -22,6 +22,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { BlockchainLoader } from './BlockchainLoader';
 
 const purchaseSchema = z.object({
   amount: z.number()
@@ -112,13 +113,20 @@ export default function PurchaseTokensModal() {
                 </FormItem>
               )}
             />
-            <Button 
-              type="submit" 
-              className="w-full"
-              disabled={purchaseTokensMutation.isPending}
-            >
-              {purchaseTokensMutation.isPending ? 'Purchasing...' : 'Purchase'}
-            </Button>
+            <div className="flex flex-col items-center gap-4">
+              {purchaseTokensMutation.isPending ? (
+                <div className="py-2">
+                  <BlockchainLoader size="sm" />
+                </div>
+              ) : null}
+              <Button 
+                type="submit" 
+                className="w-full"
+                disabled={purchaseTokensMutation.isPending}
+              >
+                {purchaseTokensMutation.isPending ? 'Processing...' : 'Purchase'}
+              </Button>
+            </div>
           </form>
         </Form>
       </DialogContent>

@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TokenTransaction } from '../types';
-import { cosmosClient } from '../lib/cosmos';
 import { useToast } from '@/hooks/use-toast';
 
 export function useTokens() {
@@ -14,31 +13,18 @@ export function useTokens() {
 
   const purchaseTokensMutation = useMutation({
     mutationFn: async (amount: number) => {
-      try {
-        // First purchase tokens through Cosmos SDK
-        const result = await cosmosClient.purchaseTokens(amount);
+      const response = await fetch('/api/tokens/purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ amount }),
+      });
 
-        // Then record the transaction in our backend
-        const response = await fetch('/api/tokens/purchase', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ amount, txHash: result.transactionHash }),
-        });
-
-        if (!response.ok) {
-          throw new Error(await response.text());
-        }
-
-        return response.json();
-      } catch (error: any) {
-        toast({
-          variant: 'destructive',
-          title: 'Transaction Failed',
-          description: error.message,
-        });
-        throw error;
+      if (!response.ok) {
+        throw new Error(await response.text());
       }
+
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user'] });
@@ -48,6 +34,13 @@ export function useTokens() {
         description: 'Tokens purchased successfully',
       });
     },
+    onError: (error: Error) => {
+      toast({
+        variant: 'destructive',
+        title: 'Transaction Failed',
+        description: error.message,
+      });
+    }
   });
 
   return {
