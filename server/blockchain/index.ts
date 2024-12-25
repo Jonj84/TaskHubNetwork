@@ -1,18 +1,6 @@
-import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import type { Transaction, Token, TransactionResult } from '../../client/src/lib/blockchain/types';
-
-// Token represents a unique token in the blockchain
-interface Token {
-  id: string;
-  creator: string;
-  owner: string;
-  metadata: {
-    createdAt: Date;
-    mintedInBlock: string; // Hash of the block where token was minted
-    previousTransfers: string[]; // Array of transaction IDs that transferred this token
-  };
-}
+import { createHash } from 'crypto';
 
 class Block {
   public hash: string;
@@ -27,23 +15,19 @@ class Block {
     public difficulty: number = 4
   ) {
     this.nonce = 0;
-    this.miningReward = 1; // Reward is now 1 unique token
+    this.miningReward = 1;
     this.tokens = new Map<string, Token>();
     this.hash = this.calculateHash();
   }
 
   calculateHash(): string {
-    const tokenEntries = Array.from(this.tokens.entries());
-    return crypto
-      .createHash('sha256')
-      .update(
-        this.previousHash +
-          this.timestamp.toString() +
-          JSON.stringify(tokenEntries) +
-          JSON.stringify(this.transactions) +
-          this.nonce.toString()
-      )
-      .digest('hex');
+    const data = this.previousHash +
+      this.timestamp.toString() +
+      JSON.stringify(Array.from(this.tokens.entries())) +
+      JSON.stringify(this.transactions) +
+      this.nonce.toString();
+
+    return createHash('sha256').update(data).digest('hex');
   }
 
   mineBlock(minerAddress: string) {
@@ -55,35 +39,36 @@ class Block {
       this.hash = this.calculateHash();
     }
 
-    // Create a new token as mining reward
-    const rewardTokenId = uuidv4();
-    const rewardToken: Token = {
-      id: rewardTokenId,
-      creator: 'SYSTEM',
-      owner: minerAddress,
-      metadata: {
-        createdAt: new Date(),
-        mintedInBlock: this.hash,
-        previousTransfers: []
-      }
-    };
+    // Only create mining reward if it's not the genesis block
+    if (minerAddress !== 'GENESIS') {
+      const rewardTokenId = uuidv4();
+      const rewardToken: Token = {
+        id: rewardTokenId,
+        creator: 'SYSTEM',
+        owner: minerAddress,
+        metadata: {
+          createdAt: new Date(),
+          mintedInBlock: this.hash,
+          previousTransfers: []
+        }
+      };
 
-    // Add token to block's token map
-    this.tokens.set(rewardTokenId, rewardToken);
+      this.tokens.set(rewardTokenId, rewardToken);
 
-    // Create reward transaction
-    const rewardTransaction: Transaction = {
-      id: uuidv4(),
-      from: 'SYSTEM',
-      to: minerAddress,
-      amount: 1,
-      timestamp: Date.now(),
-      type: 'mint',
-      tokenIds: [rewardTokenId]
-    };
+      const rewardTransaction: Transaction = {
+        id: uuidv4(),
+        from: 'SYSTEM',
+        to: minerAddress,
+        amount: 1,
+        timestamp: Date.now(),
+        type: 'mint',
+        tokenIds: [rewardTokenId]
+      };
 
-    this.transactions.push(rewardTransaction);
-    console.log('Block mined!', { hash: this.hash.substring(0, 10), rewardToken: rewardTokenId });
+      this.transactions.push(rewardTransaction);
+    }
+
+    console.log('Block mined!', { hash: this.hash.substring(0, 10) });
   }
 }
 
@@ -105,22 +90,8 @@ class Blockchain {
 
   private createGenesisBlock(): Block {
     const genesisBlock = new Block(Date.now(), [], '0');
-    const genesisTokenId = uuidv4();
-    const genesisToken: Token = {
-      id: genesisTokenId,
-      creator: 'SYSTEM',
-      owner: 'GENESIS',
-      metadata: {
-        createdAt: new Date(),
-        mintedInBlock: genesisBlock.hash,
-        previousTransfers: []
-      }
-    };
-
-    this.tokenRegistry.set(genesisTokenId, genesisToken);
-    genesisBlock.tokens.set(genesisTokenId, genesisToken);
+    // No tokens or transactions in genesis block
     genesisBlock.mineBlock('GENESIS');
-
     return genesisBlock;
   }
 
@@ -154,7 +125,6 @@ class Blockchain {
       tokenIds
     };
 
-    // Add transaction to pending
     this.pendingTransactions.push(transaction);
 
     // Mine block immediately for simplicity
