@@ -56,7 +56,7 @@ class Blockchain {
         timestamp: new Date().toISOString()
       });
 
-      return balance;
+      return balance; // Return just the number, not an object
     } catch (error) {
       console.error('[Balance] Error calculating balance:', {
         address,
