@@ -109,7 +109,6 @@ export function registerRoutes(app: Express): Server {
   // Token processing endpoint - this should be called periodically
   app.post("/api/tokens/process-queue", async (req: Request, res: Response) => {
     try {
-      // Get pending token generations
       const pendingTokens = await db
         .select()
         .from(tokenProcessingQueue)
@@ -125,7 +124,6 @@ export function registerRoutes(app: Express): Server {
 
       for (const queueItem of pendingTokens) {
         try {
-          // Update status to processing
           await db
             .update(tokenProcessingQueue)
             .set({ 
@@ -134,7 +132,6 @@ export function registerRoutes(app: Express): Server {
             })
             .where(eq(tokenProcessingQueue.id, queueItem.id));
 
-          // Get user details
           const [user] = await db
             .select()
             .from(users)
@@ -145,14 +142,35 @@ export function registerRoutes(app: Express): Server {
             throw new Error('User not found');
           }
 
-          // Create blockchain transaction
+          // Generate tokens through blockchain
+          const generatedTokens = [];
+          const tokenIds = [];
+
+          // Generate individual tokens with metadata
+          for (let i = 0; i < queueItem.amount; i++) {
+            const token = await blockchainService.generateToken({
+              creator: 'SYSTEM',
+              owner: user.username,
+              metadata: {
+                ...queueItem.metadata?.tokenSpecifications,
+                generationIndex: i + 1,
+                totalInBatch: queueItem.amount,
+                generatedAt: new Date().toISOString()
+              }
+            });
+            generatedTokens.push(token);
+            tokenIds.push(token.id);
+          }
+
+          // Create blockchain transaction for token transfer
           const blockchainTx = await blockchainService.createTransaction(
             'SYSTEM',
             user.username,
-            queueItem.amount
+            queueItem.amount,
+            tokenIds
           );
 
-          // Update user's balance
+          // Update user's token balance
           const [updatedUser] = await db
             .update(users)
             .set({
@@ -162,7 +180,7 @@ export function registerRoutes(app: Express): Server {
             .where(eq(users.id, user.id))
             .returning();
 
-          // Record the transaction
+          // Record the transaction with token IDs
           await db
             .insert(tokenTransactions)
             .values({
@@ -173,8 +191,15 @@ export function registerRoutes(app: Express): Server {
               paymentId: queueItem.paymentId,
               fromAddress: 'SYSTEM',
               toAddress: user.username,
-              blockHash: blockchainTx?.hash,
-              metadata: queueItem.metadata,
+              blockHash: blockchainTx.hash,
+              tokenIds,
+              metadata: {
+                ...queueItem.metadata,
+                tokens: generatedTokens.map(token => ({
+                  id: token.id,
+                  metadata: token.metadata
+                }))
+              },
               timestamp: new Date()
             });
 
@@ -191,6 +216,7 @@ export function registerRoutes(app: Express): Server {
             queueId: queueItem.id,
             userId: user.id,
             amount: queueItem.amount,
+            tokenIds,
             newBalance: updatedUser.tokenBalance
           });
         } catch (error: any) {
@@ -199,7 +225,6 @@ export function registerRoutes(app: Express): Server {
             error: error.message
           });
 
-          // Update queue item with error
           await db
             .update(tokenProcessingQueue)
             .set({

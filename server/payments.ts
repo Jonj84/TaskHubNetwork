@@ -3,7 +3,7 @@ import Stripe from "stripe";
 import { db } from "@db";
 import { tokenTransactions, users, tokenProcessingQueue } from "@db/schema";
 import { eq } from "drizzle-orm";
-import {blockchainService} from './blockchain'; // Assuming blockchain service is in a separate file
+import {blockchainService} from './blockchain';
 
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error("STRIPE_SECRET_KEY must be set");
@@ -203,8 +203,6 @@ export async function createStripeSession(req: Request, res: Response) {
 }
 
 export async function verifyStripePayment(sessionId: string, res: Response) {
-  console.log('Verifying payment for session:', sessionId);
-
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     console.log('Retrieved Stripe session:', {
@@ -238,9 +236,7 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       throw new Error('Missing required metadata in session');
     }
 
-    // Add to processing queue instead of direct credit
     const result = await db.transaction(async (tx) => {
-      // Check if payment was already processed
       const existingQueue = await tx
         .select()
         .from(tokenProcessingQueue)
@@ -254,7 +250,6 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
         };
       }
 
-      // Create queue entry
       const [queueEntry] = await tx
         .insert(tokenProcessingQueue)
         .values({
@@ -265,7 +260,12 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
             sessionId,
             paymentIntent: session.payment_intent,
             customerEmail: session.customer_details?.email,
-            purchaseDate: new Date().toISOString()
+            purchaseDate: new Date().toISOString(),
+            tokenSpecifications: {
+              tier: session.metadata?.tier || 'standard',
+              generationType: 'purchase',
+              source: 'stripe'
+            }
           }
         })
         .returning();
@@ -276,20 +276,19 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       };
     });
 
-    // Return appropriate response based on queue status
     if (result.status === 'already_queued') {
       res.json({
         success: true,
         status: 'processing',
         message: 'Your tokens are being processed',
-        queueId: result.queueItem.id
+        queueId: result.queueItem?.id
       });
     } else {
       res.json({
         success: true,
         status: 'queued',
-        message: 'Your tokens have been queued for processing',
-        queueId: result.queueEntry.id
+        message: 'Your token generation has been queued',
+        queueId: result.queueEntry?.id
       });
     }
 
