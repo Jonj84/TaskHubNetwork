@@ -27,6 +27,7 @@ class Blockchain {
           tokenIds: tokenTransactions.tokenIds,
           type: tokenTransactions.type,
           timestamp: tokenTransactions.timestamp,
+          metadata: tokenTransactions.metadata,
         })
         .from(tokenTransactions)
         .orderBy(tokenTransactions.timestamp);
@@ -38,7 +39,8 @@ class Blockchain {
         amount: tx.tokenIds?.length || 0,
         timestamp: tx.timestamp.getTime(),
         type: tx.type as 'transfer' | 'mint',
-        tokenIds: tx.tokenIds || []
+        tokenIds: tx.tokenIds || [],
+        metadata: tx.metadata
       }));
 
       console.log('[Blockchain] Chain initialization complete:', {
@@ -65,15 +67,28 @@ class Blockchain {
           .then(rows => rows[0]);
 
         if (!escrowTx) {
+          console.error('[Blockchain] Escrow transaction not found:', { escrowTransactionId });
           throw new Error('Escrow transaction not found');
         }
 
+        console.log('[Blockchain] Found escrow transaction:', {
+          id: escrowTx.id,
+          type: escrowTx.type,
+          tokenIds: escrowTx.tokenIds,
+          status: escrowTx.status
+        });
+
         if (escrowTx.type !== 'escrow') {
+          console.error('[Blockchain] Invalid transaction type:', { 
+            type: escrowTx.type,
+            expected: 'escrow'
+          });
           throw new Error('Invalid transaction type for escrow release');
         }
 
         const tokenIds = escrowTx.tokenIds || [];
         if (!tokenIds.length) {
+          console.error('[Blockchain] No tokens in escrow');
           throw new Error('No tokens found in escrow');
         }
 
@@ -82,7 +97,32 @@ class Blockchain {
           tokenIds
         });
 
-        // Update token ownership and status from ESCROW to worker
+        // Verify tokens are in escrow
+        const escrowedTokens = await tx
+          .select()
+          .from(tokens)
+          .where(
+            and(
+              inArray(tokens.id, tokenIds),
+              eq(tokens.status, 'escrow'),
+              eq(tokens.owner, 'ESCROW')
+            )
+          );
+
+        console.log('[Blockchain] Verified escrowed tokens:', {
+          expected: tokenIds.length,
+          found: escrowedTokens.length
+        });
+
+        if (escrowedTokens.length !== tokenIds.length) {
+          console.error('[Blockchain] Not all tokens are in escrow:', {
+            expected: tokenIds.length,
+            inEscrow: escrowedTokens.length
+          });
+          throw new Error('Some tokens are not in escrow state');
+        }
+
+        // Update token ownership and status
         const updateResult = await tx
           .update(tokens)
           .set({
@@ -100,15 +140,15 @@ class Blockchain {
           .returning();
 
         console.log('[Blockchain] Updated tokens:', {
-          count: updateResult.length,
-          tokens: updateResult
+          updated: updateResult.length,
+          tokens: updateResult.map(t => ({ id: t.id, owner: t.owner, status: t.status }))
         });
 
         // Create release transaction record
         const [releaseTx] = await tx
           .insert(tokenTransactions)
           .values({
-            userId: parseInt(toAddress), // Worker's user ID
+            userId: parseInt(toAddress),
             type: 'release',
             status: 'completed',
             fromAddress: 'ESCROW',
@@ -116,7 +156,8 @@ class Blockchain {
             tokenIds: tokenIds,
             metadata: {
               escrowTransactionId,
-              releaseTimestamp: new Date().toISOString()
+              releaseTimestamp: new Date().toISOString(),
+              originalEscrowId: escrowTx.id
             },
             timestamp: new Date()
           })
@@ -133,7 +174,8 @@ class Blockchain {
           tokenIds,
           metadata: {
             escrowTransactionId,
-            releaseTimestamp: new Date().toISOString()
+            releaseTimestamp: new Date().toISOString(),
+            originalEscrowId: escrowTx.id
           }
         };
 
@@ -143,10 +185,11 @@ class Blockchain {
         await balanceTracker.invalidateCache(toAddress);
         await balanceTracker.forceSyncBalance(toAddress);
 
-        console.log('[Blockchain] Escrow released:', {
+        console.log('[Blockchain] Escrow released successfully:', {
           transactionId: releaseTx.id,
           tokenCount: tokenIds.length,
-          recipient: toAddress
+          recipient: toAddress,
+          timestamp: new Date().toISOString()
         });
 
         return {
