@@ -28,13 +28,15 @@ export interface Transaction {
   to: string;
   amount: number;
   timestamp: number;
-  type: 'mint' | 'transfer';
+  type: 'mint' | 'transfer' | 'escrow' | 'release';
   tokenIds: string[];
   blockHash?: string;
   metadata?: {
     paymentId?: string;
     price?: number;
     reason?: string;
+    escrowTransactionId?: string;
+    releaseTimestamp?: string;
   };
 }
 

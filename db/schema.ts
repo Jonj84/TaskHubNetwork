@@ -77,11 +77,13 @@ export const tokenTransactions = pgTable("token_transactions", {
   toAddress: text("to_address"),
   tokenIds: text("token_ids").array(), // Array of token IDs involved in this transaction
   metadata: jsonb("metadata").$type<{
-    baseTokens: number;
-    bonusTokens: number;
+    baseTokens?: number;
+    bonusTokens?: number;
     pricePerToken?: number;
     totalPrice?: number;
-    timestamp: string;
+    timestamp?: string;
+    escrowTransactionId?: string;
+    releaseTimestamp?: string;
   }>(),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });

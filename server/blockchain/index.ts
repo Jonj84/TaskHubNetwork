@@ -51,6 +51,105 @@ class Blockchain {
     }
   }
 
+  async releaseEscrow(escrowTransactionId: string, toAddress: string): Promise<TransactionResult> {
+    console.log('[Blockchain] Releasing escrow:', { escrowTransactionId, toAddress });
+
+    try {
+      return await db.transaction(async (tx) => {
+        // Get the escrow transaction
+        const escrowTx = await tx
+          .select()
+          .from(tokenTransactions)
+          .where(eq(tokenTransactions.id, parseInt(escrowTransactionId)))
+          .limit(1)
+          .then(rows => rows[0]);
+
+        if (!escrowTx) {
+          throw new Error('Escrow transaction not found');
+        }
+
+        if (escrowTx.type !== 'escrow') {
+          throw new Error('Invalid transaction type for escrow release');
+        }
+
+        const tokenIds = escrowTx.tokenIds || [];
+        if (!tokenIds.length) {
+          throw new Error('No tokens found in escrow');
+        }
+
+        console.log('[Blockchain] Found escrow tokens:', {
+          count: tokenIds.length,
+          tokenIds
+        });
+
+        // Update token ownership from ESCROW to worker
+        await tx
+          .update(tokens)
+          .set({
+            owner: toAddress,
+            updated_at: new Date()
+          })
+          .where(
+            and(
+              inArray(tokens.id, tokenIds),
+              eq(tokens.status, 'active'),
+              eq(tokens.owner, 'ESCROW')
+            )
+          );
+
+        // Create release transaction record
+        const [releaseTx] = await tx
+          .insert(tokenTransactions)
+          .values({
+            userId: parseInt(toAddress), // Worker's user ID
+            type: 'transfer',
+            status: 'completed',
+            fromAddress: 'ESCROW',
+            toAddress: toAddress,
+            tokenIds: tokenIds,
+            metadata: {
+              escrowTransactionId,
+              releaseTimestamp: new Date().toISOString()
+            },
+            timestamp: new Date()
+          })
+          .returning();
+
+        // Add to chain
+        const chainTransaction: Transaction = {
+          id: releaseTx.id.toString(),
+          from: 'ESCROW',
+          to: toAddress,
+          amount: tokenIds.length,
+          timestamp: Date.now(),
+          type: 'transfer',
+          tokenIds
+        };
+
+        this.chain.push(chainTransaction);
+
+        // Update balances
+        await balanceTracker.invalidateCache(toAddress);
+        await balanceTracker.forceSyncBalance(toAddress);
+
+        console.log('[Blockchain] Escrow released:', {
+          transactionId: releaseTx.id,
+          tokenCount: tokenIds.length,
+          recipient: toAddress
+        });
+
+        return {
+          id: releaseTx.id.toString(),
+          tokenIds,
+          blockHash: 'immediate'
+        };
+      });
+    } catch (error) {
+      console.error('[Blockchain] Escrow release failed:', error);
+      throw error;
+    }
+  }
+
   async createTransaction(
     from: string,
     to: string,
@@ -136,8 +235,8 @@ class Blockchain {
         const [transaction] = await tx
           .insert(tokenTransactions)
           .values({
-            userId: toUser.id, // Required field from schema
-            type: 'transfer',
+            userId: toUser.id,
+            type: to === 'ESCROW' ? 'escrow' : 'transfer',
             status: 'completed',
             fromAddress: from,
             toAddress: to,
@@ -158,7 +257,7 @@ class Blockchain {
           to,
           amount: tokenIds.length,
           timestamp: Date.now(),
-          type: 'transfer',
+          type: to === 'ESCROW' ? 'escrow' : 'transfer',
           tokenIds
         };
 
@@ -265,5 +364,6 @@ export const blockchainService = {
   getAllTransactions: blockchain.getAllTransactions.bind(blockchain),
   getPendingTransactions: blockchain.getPendingTransactions.bind(blockchain),
   getBalance: blockchain.getBalance.bind(blockchain),
-  getTokens: blockchain.getTokens.bind(blockchain)
+  getTokens: blockchain.getTokens.bind(blockchain),
+  releaseEscrow: blockchain.releaseEscrow.bind(blockchain)
 } as const;
