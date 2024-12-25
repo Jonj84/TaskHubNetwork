@@ -16,15 +16,8 @@ export interface Transaction {
   amount: number;
   timestamp: number;
   type: 'mint' | 'transfer';
-  tokenIds?: string[];
-  blockHash?: string;
-  signature?: string;
-}
-
-export interface TransactionResult {
-  id: string;
   tokenIds: string[];
-  blockHash: string;
+  blockHash?: string;
 }
 
 export interface BlockMetadata {
@@ -33,4 +26,10 @@ export interface BlockMetadata {
   timestamp: number;
   nonce: number;
   difficulty: number;
+}
+
+export interface TransactionResult {
+  id: string;
+  tokenIds: string[];
+  blockHash: string;
 }

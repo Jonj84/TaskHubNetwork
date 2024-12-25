@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
+import type { Transaction, Token, TransactionResult } from '../../client/src/lib/blockchain/types';
 
 // Token represents a unique token in the blockchain
 interface Token {
@@ -12,17 +14,6 @@ interface Token {
   };
 }
 
-// Transaction now includes specific tokens being transferred
-export interface Transaction {
-  id: string;
-  from: string;
-  to: string;
-  tokenIds: string[]; // Specific tokens being transferred
-  timestamp: Date;
-  type: 'mint' | 'transfer';
-  signature?: string; // For future implementation of transaction signing
-}
-
 class Block {
   public hash: string;
   public nonce: number;
@@ -30,7 +21,7 @@ class Block {
   public tokens: Map<string, Token>;
 
   constructor(
-    public timestamp: Date,
+    public timestamp: number,
     public transactions: Transaction[],
     public previousHash: string = '',
     public difficulty: number = 4
@@ -47,10 +38,10 @@ class Block {
       .createHash('sha256')
       .update(
         this.previousHash +
-        this.timestamp.getTime().toString() +
-        JSON.stringify(tokenEntries) +
-        JSON.stringify(this.transactions) +
-        this.nonce.toString()
+          this.timestamp.toString() +
+          JSON.stringify(tokenEntries) +
+          JSON.stringify(this.transactions) +
+          this.nonce.toString()
       )
       .digest('hex');
   }
@@ -65,7 +56,7 @@ class Block {
     }
 
     // Create a new token as mining reward
-    const rewardTokenId = crypto.randomUUID();
+    const rewardTokenId = uuidv4();
     const rewardToken: Token = {
       id: rewardTokenId,
       creator: 'SYSTEM',
@@ -82,20 +73,17 @@ class Block {
 
     // Create reward transaction
     const rewardTransaction: Transaction = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       from: 'SYSTEM',
       to: minerAddress,
-      tokenIds: [rewardTokenId],
-      timestamp: new Date(),
-      type: 'mint'
+      amount: 1,
+      timestamp: Date.now(),
+      type: 'mint',
+      tokenIds: [rewardTokenId]
     };
 
     this.transactions.push(rewardTransaction);
-    console.log('Block mined!', {
-      hash: this.hash.substring(0, 10),
-      rewardToken: rewardTokenId,
-      minerAddress
-    });
+    console.log('Block mined!', { hash: this.hash.substring(0, 10), rewardToken: rewardTokenId });
   }
 }
 
@@ -103,22 +91,21 @@ class Blockchain {
   private chain: Block[];
   private difficulty: number;
   private pendingTransactions: Transaction[];
-  private tokenRegistry: Map<string, Token>; // Global registry of all tokens
+  private tokenRegistry: Map<string, Token>;
   private readonly maxSupply: number;
 
   constructor() {
     this.chain = [];
     this.difficulty = 4;
     this.pendingTransactions = [];
-    this.tokenRegistry = new Map();
+    this.tokenRegistry = new Map<string, Token>();
     this.maxSupply = 1000000;
-    // Create genesis block after initializing all properties
     this.chain.push(this.createGenesisBlock());
   }
 
   private createGenesisBlock(): Block {
-    const genesisBlock = new Block(new Date(), [], '0');
-    const genesisTokenId = crypto.randomUUID();
+    const genesisBlock = new Block(Date.now(), [], '0');
+    const genesisTokenId = uuidv4();
     const genesisToken: Token = {
       id: genesisTokenId,
       creator: 'SYSTEM',
@@ -130,72 +117,51 @@ class Blockchain {
       }
     };
 
-    genesisBlock.tokens.set(genesisTokenId, genesisToken);
     this.tokenRegistry.set(genesisTokenId, genesisToken);
+    genesisBlock.tokens.set(genesisTokenId, genesisToken);
+    genesisBlock.mineBlock('GENESIS');
 
     return genesisBlock;
   }
 
-  getLatestBlock(): Block {
-    return this.chain[this.chain.length - 1];
-  }
-
-  minePendingTransactions(minerAddress: string) {
-    if (this.tokenRegistry.size >= this.maxSupply) {
-      console.log('Maximum token supply reached. No more tokens can be minted.');
-      return;
+  createTransaction(from: string, to: string, amount: number): TransactionResult {
+    if (!from || !to) {
+      throw new Error('Transaction must include from and to addresses');
     }
 
-    const block = new Block(
-      new Date(),
-      this.pendingTransactions,
-      this.getLatestBlock().hash,
-      this.difficulty
-    );
-
-    block.mineBlock(minerAddress);
-
-    // Add new tokens to global registry
-    block.tokens.forEach((token, id) => {
-      this.tokenRegistry.set(id, token);
-    });
-
-    console.log('Block added to chain:', {
-      timestamp: block.timestamp,
-      transactions: block.transactions.length,
-      newTokens: block.tokens.size,
-      totalSupply: this.tokenRegistry.size
-    });
-
-    this.chain.push(block);
-    this.pendingTransactions = [];
-  }
-
-  getTokensByOwner(address: string): Token[] {
-    return Array.from(this.tokenRegistry.values())
-      .filter(token => token.owner === address);
-  }
-
-  createTransaction(from: string, to: string, amount: number): Transaction {
-    // Get tokens owned by sender
-    const senderTokens = this.getTokensByOwner(from);
-
-    if (from !== 'SYSTEM' && senderTokens.length < amount) {
-      throw new Error(`Insufficient tokens. Has: ${senderTokens.length}, Needed: ${amount}`);
+    if (amount <= 0) {
+      throw new Error('Transaction amount must be positive');
     }
 
-    // Select tokens to transfer
-    const tokensToTransfer = senderTokens.slice(0, amount);
-    const tokenIds = tokensToTransfer.map(token => token.id);
+    // Check balance (except for system transactions)
+    if (from !== 'SYSTEM') {
+      const balance = this.getBalance(from);
+      if (balance < amount) {
+        throw new Error(`Insufficient balance: ${balance} < ${amount}`);
+      }
+    }
+
+    // Generate unique IDs for tokens being transferred
+    const tokenIds = Array.from({ length: amount }, () => uuidv4());
 
     const transaction: Transaction = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       from,
       to,
-      tokenIds,
-      timestamp: new Date(),
-      type: from === 'SYSTEM' ? 'mint' : 'transfer'
+      amount,
+      timestamp: Date.now(),
+      type: from === 'SYSTEM' ? 'mint' : 'transfer',
+      tokenIds
     };
+
+    // Add transaction to pending
+    this.pendingTransactions.push(transaction);
+
+    // Mine block immediately for simplicity
+    const block = this.minePendingTransactions(to);
+    if (!block) {
+      throw new Error('Failed to mine block');
+    }
 
     // Update token ownership
     tokenIds.forEach(tokenId => {
@@ -206,69 +172,70 @@ class Blockchain {
       }
     });
 
-    this.pendingTransactions.push(transaction);
-    console.log('Transaction created:', {
+    return {
       id: transaction.id,
-      from,
-      to,
-      tokenCount: tokenIds.length,
-      type: transaction.type
-    });
-
-    // Mine block immediately for simplicity
-    this.minePendingTransactions(to);
-    return transaction;
+      tokenIds,
+      blockHash: block.hash
+    };
   }
 
   getAllTransactions(): Transaction[] {
-    return this.chain.reduce((transactions: Transaction[], block) => {
-      return [...transactions, ...block.transactions];
-    }, []);
+    return this.chain.reduce((acc, block) => {
+      return acc.concat(block.transactions.map(tx => ({
+        ...tx,
+        blockHash: block.hash
+      })));
+    }, [] as Transaction[]);
   }
 
   getPendingTransactions(): Transaction[] {
-    return this.pendingTransactions;
+    return [...this.pendingTransactions];
   }
 
   getBalance(address: string): number {
-    return this.getTokensByOwner(address).length;
+    return Array.from(this.tokenRegistry.values())
+      .filter(token => token.owner === address)
+      .length;
   }
 
   getTokenMetadata(tokenId: string): Token | undefined {
     return this.tokenRegistry.get(tokenId);
   }
 
-  getTotalSupply(): number {
-    return this.tokenRegistry.size;
-  }
-
-  isChainValid(): boolean {
-    for (let i = 1; i < this.chain.length; i++) {
-      const currentBlock = this.chain[i];
-      const previousBlock = this.chain[i - 1];
-
-      if (currentBlock.hash !== currentBlock.calculateHash()) {
-        return false;
-      }
-
-      if (currentBlock.previousHash !== previousBlock.hash) {
-        return false;
-      }
+  private minePendingTransactions(minerAddress: string): Block | undefined {
+    if (this.tokenRegistry.size >= this.maxSupply) {
+      console.log('Maximum token supply reached');
+      return undefined;
     }
-    return true;
+
+    const block = new Block(
+      Date.now(),
+      this.pendingTransactions,
+      this.chain[this.chain.length - 1].hash,
+      this.difficulty
+    );
+
+    block.mineBlock(minerAddress);
+    this.chain.push(block);
+    this.pendingTransactions = [];
+
+    // Add new tokens to global registry
+    block.tokens.forEach((token, id) => {
+      this.tokenRegistry.set(id, token);
+    });
+
+    return block;
   }
 }
 
-// Create a singleton instance
+// Create singleton instance
 const blockchain = new Blockchain();
 
 export const blockchainService = {
-  createTransaction: (from: string, to: string, amount: number) => {
-    return blockchain.createTransaction(from, to, amount);
-  },
+  createTransaction: (from: string, to: string, amount: number) =>
+    blockchain.createTransaction(from, to, amount),
   getAllTransactions: () => blockchain.getAllTransactions(),
   getPendingTransactions: () => blockchain.getPendingTransactions(),
   getBalance: (address: string) => blockchain.getBalance(address),
-  getTokenMetadata: (tokenId: string) => blockchain.getTokenMetadata(tokenId),
-  getTotalSupply: () => blockchain.getTotalSupply()
+  getTokenMetadata: (tokenId: string) => blockchain.getTokenMetadata(tokenId)
 };

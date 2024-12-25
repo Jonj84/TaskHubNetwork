@@ -1,6 +1,6 @@
 import { Block } from './Block';
 import { Transaction, Token, TransactionResult } from './types';
-import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 
 export class Blockchain {
   private chain: Block[];
@@ -10,16 +10,17 @@ export class Blockchain {
   private readonly maxSupply: number;
 
   constructor() {
-    this.chain = [this.createGenesisBlock()];
     this.difficulty = 4;
     this.pendingTransactions = [];
-    this.tokenRegistry = new Map();
+    this.tokenRegistry = new Map<string, Token>();
     this.maxSupply = 1000000; // Maximum token supply
+    this.chain = []; // Initialize empty chain
+    this.chain.push(this.createGenesisBlock()); // Add genesis block after initialization
   }
 
   private createGenesisBlock(): Block {
     const genesisBlock = new Block(Date.now(), [], "0");
-    const genesisTokenId = crypto.randomUUID();
+    const genesisTokenId = uuidv4();
 
     // Create genesis token
     const genesisToken: Token = {
@@ -33,6 +34,7 @@ export class Blockchain {
       }
     };
 
+    // Add token to registry
     this.tokenRegistry.set(genesisTokenId, genesisToken);
     genesisBlock.addToken(genesisTokenId, 'GENESIS');
     genesisBlock.mineBlock();
@@ -72,7 +74,7 @@ export class Blockchain {
     );
 
     // Create mining reward token
-    const rewardTokenId = crypto.randomUUID();
+    const rewardTokenId = uuidv4();
     const rewardToken: Token = {
       id: rewardTokenId,
       creator: 'SYSTEM',
@@ -90,7 +92,7 @@ export class Blockchain {
 
     // Create reward transaction
     const rewardTx: Transaction = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       from: 'SYSTEM',
       to: minerAddress,
       amount: 1,
@@ -126,10 +128,10 @@ export class Blockchain {
     }
 
     // Generate unique IDs for tokens being transferred
-    const tokenIds = Array.from({ length: amount }, () => crypto.randomUUID());
+    const tokenIds = Array.from({ length: amount }, () => uuidv4());
 
     const transaction: Transaction = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       from,
       to,
       amount,

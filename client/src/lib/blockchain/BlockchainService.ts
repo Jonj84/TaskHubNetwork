@@ -1,107 +1,49 @@
-import { Blockchain } from './Blockchain';
 import { Transaction, Token } from './types';
-import { WebSocket } from 'ws';
 
 class BlockchainService {
-  private blockchain: Blockchain;
-  private peers: Set<WebSocket>;
-  private miningInterval: ReturnType<typeof setInterval> | null = null;
+  private async fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
+    const response = await fetch(endpoint, {
+      credentials: 'include',
+      ...options
+    });
 
-  constructor() {
-    this.blockchain = new Blockchain();
-    this.peers = new Set();
-    this.startMining();
-  }
-
-  private startMining() {
-    // Mine pending transactions every 10 seconds
-    this.miningInterval = setInterval(() => {
-      if (this.blockchain.getPendingTransactions().length > 0) {
-        const block = this.blockchain.minePendingTransactions("network");
-        if (block) {
-          this.broadcastChain();
-        }
-      }
-    }, 10000);
-  }
-
-  createTransaction(from: string, to: string, amount: number): void {
-    try {
-      const result = this.blockchain.createTransaction(from, to, amount);
-
-      const transaction: Transaction = {
-        id: result.id,
-        from,
-        to,
-        amount,
-        timestamp: Date.now(),
-        type: from === 'SYSTEM' ? 'mint' : 'transfer',
-        tokenIds: result.tokenIds,
-        blockHash: result.blockHash,
-      };
-
-      this.broadcastTransaction(transaction);
-    } catch (error) {
-      throw error;
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText);
     }
+
+    return response.json();
   }
 
-  getBalance(address: string): number {
-    return this.blockchain.getBalanceOfAddress(address);
+  async getAllTransactions(): Promise<Transaction[]> {
+    return this.fetchApi<Transaction[]>('/api/blockchain/transactions');
   }
 
-  getAllTransactions(): Transaction[] {
-    return this.blockchain.getAllTransactions().map(tx => ({
-      ...tx,
-      blockHash: this.blockchain.getBlockHashForTransaction(tx.id),
-    }));
+  async getPendingTransactions(): Promise<Transaction[]> {
+    return this.fetchApi<Transaction[]>('/api/blockchain/pending');
   }
 
-  getPendingTransactions(): Transaction[] {
-    return this.blockchain.getPendingTransactions();
-  }
-
-  getTokenMetadata(tokenId: string): Token | undefined {
-    return this.blockchain.getTokenMetadata(tokenId);
-  }
-
-  addPeer(peer: WebSocket): void {
-    this.peers.add(peer);
-  }
-
-  removePeer(peer: WebSocket): void {
-    this.peers.delete(peer);
-  }
-
-  private broadcastChain(): void {
-    const message = JSON.stringify({
-      type: 'CHAIN_UPDATE',
-      data: this.blockchain,
-    });
-
-    this.peers.forEach(peer => {
-      if (peer.readyState === WebSocket.OPEN) {
-        peer.send(message);
-      }
+  async createTransaction(from: string, to: string, amount: number): Promise<Transaction> {
+    return this.fetchApi<Transaction>('/api/blockchain/transaction', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ from, to, amount })
     });
   }
 
-  private broadcastTransaction(transaction: Transaction): void {
-    const message = JSON.stringify({
-      type: 'NEW_TRANSACTION',
-      data: transaction,
-    });
-
-    this.peers.forEach(peer => {
-      if (peer.readyState === WebSocket.OPEN) {
-        peer.send(message);
-      }
-    });
+  async getBalance(address: string): Promise<number> {
+    const response = await this.fetchApi<{ balance: number }>(`/api/blockchain/balance/${address}`);
+    return response.balance;
   }
 
-  dispose(): void {
-    if (this.miningInterval) {
-      clearInterval(this.miningInterval);
+  async getTokenMetadata(tokenId: string): Promise<Token | undefined> {
+    try {
+      return await this.fetchApi<Token>(`/api/blockchain/token/${tokenId}`);
+    } catch (error) {
+      console.warn(`Failed to fetch token metadata for ${tokenId}:`, error);
+      return undefined;
     }
   }
 }
