@@ -37,9 +37,12 @@ export default function WalletPage() {
 
   // Debug logging
   useEffect(() => {
-    console.log('[WalletPage] Balance:', balance);
-    console.log('[WalletPage] Transactions:', transactions);
-  }, [balance, transactions]);
+    console.log('[Balance] Starting balance calculation for:', user?.username);
+    console.log('[Balance] Token status for address:', {
+      address: user?.username,
+      balance: balance
+    });
+  }, [balance, user?.username]);
 
   // Memoized handlers
   const groupTransactions = useCallback(() => {
@@ -92,10 +95,10 @@ export default function WalletPage() {
   }, [user, amount, recipient, createTransaction]);
 
   const { purchases, mining } = groupTransactions();
-  const displayBalance = typeof balance === 'number' ? balance : 0;
+  const displayBalance = Number(balance?.total || 0);
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="container mx-auto py-8 px-4">
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -160,7 +163,7 @@ export default function WalletPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="mt-8">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Database className="h-5 w-5" />
