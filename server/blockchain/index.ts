@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Transaction, Token, TransactionResult, TokenMetadata } from '../../client/src/lib/blockchain/types';
 import { createHash } from 'crypto';
+import { db } from "@db";
+import { tokens } from "@db/schema";
 
 class Block {
   public hash: string;
@@ -76,8 +78,8 @@ class Block {
     }
   }
 
-  getTokens(): Map<string, Token> {
-    return this.tokens;
+  getTokens(): Token[] {
+    return Array.from(this.tokens.values());
   }
 }
 
@@ -87,7 +89,6 @@ class Blockchain {
   private pendingTransactions: Transaction[];
   private tokenRegistry: Map<string, Token>;
   private readonly maxSupply: number;
-  private balances: Map<string, number>;
 
   constructor() {
     console.log('Initializing blockchain...');
@@ -95,7 +96,6 @@ class Blockchain {
     this.difficulty = 4;
     this.pendingTransactions = [];
     this.tokenRegistry = new Map<string, Token>();
-    this.balances = new Map<string, number>();
     this.maxSupply = 1000000;
     this.createGenesisBlock();
   }
@@ -108,9 +108,9 @@ class Blockchain {
 
     // Add genesis block tokens to registry
     const genesisTokens = genesisBlock.getTokens();
-    console.log('Genesis block tokens:', Array.from(genesisTokens.entries()));
-    genesisTokens.forEach((token, id) => {
-      this.tokenRegistry.set(id, token);
+    console.log('Genesis block tokens:', genesisTokens);
+    genesisTokens.forEach(token => {
+      this.tokenRegistry.set(token.id, token);
     });
     console.log('Genesis block created, token registry size:', this.tokenRegistry.size);
   }
@@ -128,26 +128,28 @@ class Blockchain {
     return [...this.pendingTransactions];
   }
 
-  getBalance(address: string): number {
+  async getBalance(address: string): Promise<number> {
     console.log('Calculating balance for address:', address);
 
-    // Calculate balance by counting tokens owned by the address
-    let balance = 0;
-    for (const token of this.tokenRegistry.values()) {
-      if (token.owner === address) {
-        balance++;
-      }
-    }
+    try {
+      // Get token count from database
+      const tokenCount = await db.query.tokens.count({
+        where: (tokens, { eq }) => eq(tokens.owner, address)
+      });
 
-    console.log('Calculated balance:', { address, balance, totalTokens: this.tokenRegistry.size });
-    return balance;
+      console.log('Calculated balance:', { address, balance: tokenCount, totalTokens: this.tokenRegistry.size });
+      return tokenCount;
+    } catch (error) {
+      console.error('Error getting balance:', error);
+      return 0;
+    }
   }
 
   getTokenMetadata(tokenId: string): Token | undefined {
     return this.tokenRegistry.get(tokenId);
   }
 
-  createTransaction(from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number }): TransactionResult {
+  async createTransaction(from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number }): Promise<TransactionResult> {
     console.log('Creating transaction:', { from, to, amount, metadata });
 
     if (!from || !to) {
@@ -160,7 +162,7 @@ class Blockchain {
 
     // Check balance (except for system transactions)
     if (from !== 'SYSTEM') {
-      const balance = this.getBalance(from);
+      const balance = await this.getBalance(from);
       console.log('Checking balance:', { address: from, balance, required: amount });
       if (balance < amount) {
         throw new Error(`Insufficient balance: ${balance} < ${amount}`);
@@ -186,20 +188,20 @@ class Blockchain {
     console.log('Added transaction to pending:', transaction);
 
     // Mine block immediately for simplicity
-    const block = this.minePendingTransactions(to);
+    const block = await this.minePendingTransactions(to);
     if (!block) {
       throw new Error('Failed to mine block');
     }
 
-    // Update token registry and balances
-    tokenIds.forEach(tokenId => {
-      const token: Token = {
+    // Create tokens in database
+    try {
+      const tokensToCreate = tokenIds.map(tokenId => ({
         id: tokenId,
         creator: from,
         owner: to,
+        mintedInBlock: block.hash,
         metadata: {
           createdAt: new Date(),
-          mintedInBlock: block.hash,
           previousTransfers: [],
           purchaseInfo: metadata ? {
             paymentId: metadata.paymentId,
@@ -207,17 +209,21 @@ class Blockchain {
             purchaseDate: new Date()
           } : undefined
         }
-      };
-      this.tokenRegistry.set(tokenId, token);
+      }));
 
-      // Log token creation
-      console.log('Created new token:', {
-        tokenId,
-        creator: from,
-        owner: to,
-        metadata: token.metadata
+      await db.insert(tokens).values(tokensToCreate);
+      console.log('Created tokens in database:', tokensToCreate);
+
+      // Update token registry
+      tokensToCreate.forEach(token => {
+        this.tokenRegistry.set(token.id, token as Token);
+        console.log('Added token to registry:', { id: token.id, owner: token.owner });
       });
-    });
+
+    } catch (error) {
+      console.error('Error creating tokens in database:', error);
+      throw error;
+    }
 
     const result = {
       id: transaction.id,
@@ -228,7 +234,7 @@ class Blockchain {
     return result;
   }
 
-  private minePendingTransactions(minerAddress: string): Block | undefined {
+  private async minePendingTransactions(minerAddress: string): Promise<Block | undefined> {
     console.log('Mining pending transactions for:', minerAddress);
     if (this.tokenRegistry.size >= this.maxSupply) {
       console.log('Maximum token supply reached');
@@ -246,10 +252,10 @@ class Blockchain {
 
     // Add new tokens to global registry
     const blockTokens = block.getTokens();
-    console.log('New block tokens:', Array.from(blockTokens.entries()));
-    blockTokens.forEach((token, id) => {
-      this.tokenRegistry.set(id, token);
-      console.log('Added token to registry:', { id, owner: token.owner });
+    console.log('New block tokens:', blockTokens);
+    blockTokens.forEach(token => {
+      this.tokenRegistry.set(token.id, token);
+      console.log('Added token to registry:', { id: token.id, owner: token.owner });
     });
 
     this.chain.push(block);

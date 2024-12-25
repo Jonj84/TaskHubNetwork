@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { createStripeSession, handleStripeWebhook, verifyStripePayment } from "./payments";
 import { db } from "@db";
-import { tokenTransactions, tokenProcessingQueue, users } from "@db/schema";
+import { tokenTransactions, tokenProcessingQueue, users, tokens } from "@db/schema";
 import { eq, and } from "drizzle-orm";
 import { blockchainService } from './blockchain';
 
@@ -126,9 +126,9 @@ export function registerRoutes(app: Express): Server {
         try {
           await db
             .update(tokenProcessingQueue)
-            .set({ 
+            .set({
               status: 'processing',
-              updated_at: new Date() 
+              updated_at: new Date()
             })
             .where(eq(tokenProcessingQueue.id, queueItem.id));
 
@@ -153,11 +153,15 @@ export function registerRoutes(app: Express): Server {
             }
           );
 
-          // Update user's token balance
+          // Update user's token balance based on actual token count
+          const tokenCount = await db.query.tokens.count({
+            where: (tokens, { eq }) => eq(tokens.owner, user.username)
+          });
+
           const [updatedUser] = await db
             .update(users)
             .set({
-              tokenBalance: user.tokenBalance + queueItem.amount,
+              tokenBalance: tokenCount,
               updated_at: new Date()
             })
             .where(eq(users.id, user.id))
