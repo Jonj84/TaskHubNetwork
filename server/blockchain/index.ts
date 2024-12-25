@@ -237,7 +237,13 @@ class Blockchain {
       await db.insert(tokens).values(tokensToCreate);
       console.log('Created purchased tokens in database:', tokensToCreate.length);
 
-      // If there are bonus tokens, create them as mining rewards
+      // Add purchased tokens to registry
+      tokensToCreate.forEach(token => {
+        this.tokenRegistry.set(token.id, token as Token);
+        console.log('Added purchased token to registry:', { id: token.id, owner: token.owner });
+      });
+
+      // Now create the bonus tokens if specified
       if (metadata?.bonusTokens && metadata.bonusTokens > 0) {
         console.log('Creating bonus mining reward tokens:', metadata.bonusTokens);
         const bonusTokenIds = Array.from({ length: metadata.bonusTokens }, () => uuidv4());
@@ -258,10 +264,11 @@ class Blockchain {
           }
         }));
 
+        // Create bonus tokens in database
         await db.insert(tokens).values(bonusTokensToCreate);
         console.log('Created bonus tokens in database:', bonusTokensToCreate.length);
 
-        // Add bonus tokens to registry and result
+        // Add bonus tokens to registry
         bonusTokensToCreate.forEach(token => {
           this.tokenRegistry.set(token.id, token as Token);
           console.log('Added bonus token to registry:', { id: token.id, owner: token.owner });
@@ -270,12 +277,6 @@ class Blockchain {
         // Add bonus token IDs to the result
         tokenIds.push(...bonusTokenIds);
       }
-
-      // Add purchased tokens to registry
-      tokensToCreate.forEach(token => {
-        this.tokenRegistry.set(token.id, token as Token);
-        console.log('Added purchased token to registry:', { id: token.id, owner: token.owner });
-      });
 
       // Update user balance after all tokens are created
       await this.updateUserBalance(to);
