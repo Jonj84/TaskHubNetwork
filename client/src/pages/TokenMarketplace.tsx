@@ -94,22 +94,25 @@ export default function TokenMarketplace() {
 
   const verifyPayment = async (sessionId: string, popup: Window | null) => {
     try {
-      console.log('[Payment] Verifying payment for session:', sessionId);
-      const response = await fetch(`/api/payment/verify/${sessionId}`);
+      console.log('[Payment] Starting verification for session:', sessionId);
 
-      // Always close popup first to prevent errors
+      // Always close popup first to prevent any UI glitches
       if (popup && !popup.closed) {
         popup.close();
       }
 
+      const response = await fetch(`/api/payment/verify/${sessionId}`, {
+        credentials: 'include'
+      });
+
+      // Handle all non-200 responses silently
       if (!response.ok) {
-        // Silently log verification errors
-        console.error('[Payment] Verification failed:', await response.text());
+        console.error('[Payment] Verification response not OK:', await response.text());
         return;
       }
 
       const data = await response.json();
-      console.log('[Payment] Verification response:', data);
+      console.log('[Payment] Verification successful:', data);
 
       // Always refresh token data
       queryClient.invalidateQueries({ queryKey: ['/api/user'] });
@@ -123,24 +126,25 @@ export default function TokenMarketplace() {
         });
       }
     } catch (error) {
-      // Just log verification errors
+      // Silently log all errors, never show to user
       console.error('[Payment] Verification error:', error);
     }
   };
 
   const handlePurchase = async () => {
     let popup: Window | null = null;
+    let checkInterval: NodeJS.Timeout | null = null;
 
     try {
       setIsProcessing(true);
 
       if (!isValidAmount(tokenAmount)) {
-        console.error('Invalid token amount:', tokenAmount);
+        console.error('[Payment] Invalid token amount:', tokenAmount);
         setIsProcessing(false);
         return;
       }
 
-      console.log('Initiating purchase for', tokenAmount, 'tokens');
+      console.log('[Payment] Initiating purchase for', tokenAmount, 'tokens');
 
       const response = await fetch('/api/tokens/purchase', {
         method: 'POST',
@@ -150,7 +154,7 @@ export default function TokenMarketplace() {
       });
 
       if (!response.ok) {
-        console.error('Purchase request failed:', await response.text());
+        console.error('[Payment] Purchase request failed:', await response.text());
         setIsProcessing(false);
         return;
       }
@@ -158,7 +162,7 @@ export default function TokenMarketplace() {
       const { checkoutUrl, sessionId } = await response.json();
 
       if (!checkoutUrl || !sessionId) {
-        console.error('Invalid server response - missing checkoutUrl or sessionId');
+        console.error('[Payment] Invalid server response - missing checkoutUrl or sessionId');
         setIsProcessing(false);
         return;
       }
@@ -176,15 +180,17 @@ export default function TokenMarketplace() {
       );
 
       if (!popup) {
-        console.error('Popup was blocked');
+        console.error('[Payment] Popup was blocked');
         setIsProcessing(false);
         return;
       }
 
       // Start payment verification process
-      const checkPayment = setInterval(() => {
+      checkInterval = setInterval(() => {
         if (popup?.closed) {
-          clearInterval(checkPayment);
+          if (checkInterval) {
+            clearInterval(checkInterval);
+          }
           verifyPayment(sessionId, popup);
           setIsProcessing(false);
         }
@@ -196,11 +202,16 @@ export default function TokenMarketplace() {
       });
 
     } catch (error) {
-      console.error('[Token purchase failed] Error:', error);
-      // Always ensure popup is closed
+      console.error('[Payment] Purchase failed:', error);
+
+      // Clean up in case of error
+      if (checkInterval) {
+        clearInterval(checkInterval);
+      }
       if (popup && !popup.closed) {
         popup.close();
       }
+
       setIsProcessing(false);
     }
   };
