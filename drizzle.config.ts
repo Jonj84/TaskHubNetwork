@@ -1,5 +1,4 @@
 import { defineConfig } from "drizzle-kit";
-import { config } from "dotenv";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL must be set. Did you forget to provision a database?");
@@ -10,8 +9,12 @@ export default defineConfig({
   schema: "./db/schema.ts",
   verbose: true,
   strict: true,
-  driver: 'pg',
+  dialect: "postgresql",
   dbCredentials: {
-    connectionString: process.env.DATABASE_URL,
+    host: process.env.PGHOST || "",
+    port: Number(process.env.PGPORT) || 5432,
+    user: process.env.PGUSER || "",
+    password: process.env.PGPASSWORD || "",
+    database: process.env.PGDATABASE || "",
   },
 });

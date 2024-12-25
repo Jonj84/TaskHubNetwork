@@ -1,7 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { log } from "./vite";
-import { setupAuth } from "./auth";
+import { db } from "@db";
+import { tasks, users } from "@db/schema";
+import { eq } from "drizzle-orm";
 import express from "express";
 import { blockchainService } from './blockchain';
 import { balanceTracker } from './services/balanceTracker';
@@ -22,6 +24,81 @@ interface AuthRequest extends Request {
 export function registerRoutes(app: Express): Server {
   // Create HTTP server
   const httpServer = createServer(app);
+
+  // Task Routes
+  app.post('/api/tasks', async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ 
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const { title, description, type, reward, proofRequired } = req.body;
+
+      // Validate required fields
+      if (!title || !description || !type || !reward || !proofRequired) {
+        return res.status(400).json({
+          message: 'Missing required fields',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      // Validate reward amount
+      if (isNaN(reward) || reward <= 0 || reward > 1000) {
+        return res.status(400).json({
+          message: 'Reward must be between 1 and 1000 tokens',
+          code: 'INVALID_REWARD'
+        });
+      }
+
+      // Check user's token balance
+      if (req.user.tokenBalance < reward) {
+        return res.status(400).json({
+          message: 'Insufficient token balance',
+          code: 'INSUFFICIENT_BALANCE'
+        });
+      }
+
+      // Create task
+      const [task] = await db.insert(tasks).values({
+        title,
+        description,
+        type,
+        reward,
+        status: 'open',
+        creatorId: req.user.id,
+        proofRequired,
+        created_at: new Date(),
+        updated_at: new Date()
+      }).returning();
+
+      // Send JSON response
+      res.status(201).json(task);
+    } catch (error: any) {
+      console.error('[API] Task creation failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to create task',
+        code: 'TASK_CREATION_ERROR'
+      });
+    }
+  });
+
+  app.get('/api/tasks', async (_req: Request, res) => {
+    try {
+      const allTasks = await db.query.tasks.findMany({
+        orderBy: (tasks, { desc }) => [desc(tasks.created_at)]
+      });
+      res.json(allTasks);
+    } catch (error: any) {
+      console.error('[API] Task fetch error:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to fetch tasks',
+        code: 'TASK_FETCH_ERROR'
+      });
+    }
+  });
 
   // Token and Payment Routes
   app.post('/api/tokens/calculate-price', (req: AuthRequest, res: Response) => {

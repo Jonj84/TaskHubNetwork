@@ -11,6 +11,23 @@ export const users = pgTable("users", {
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  type: text("type", { enum: ["manual", "computational"] }).notNull(),
+  reward: integer("reward").notNull(),
+  status: text("status", {
+    enum: ["open", "in_progress", "pending_verification", "completed", "cancelled"]
+  }).notNull().default("open"),
+  creatorId: integer("creator_id").notNull(),
+  workerId: integer("worker_id"),
+  proofRequired: text("proof_required").notNull(),
+  proofSubmitted: text("proof_submitted"),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const tokens = pgTable("tokens", {
   id: text("id").primaryKey(), // UUID for the token
   creator: text("creator").notNull(), // Username of token creator
@@ -70,6 +87,21 @@ export const usersRelations = relations(users, ({ many }) => ({
   transactions: many(tokenTransactions),
   ownedTokens: many(tokens, { relationName: "ownership" }),
   createdTokens: many(tokens, { relationName: "creation" }),
+  createdTasks: many(tasks, { relationName: "taskCreation" }),
+  workedTasks: many(tasks, { relationName: "taskWork" }),
+}));
+
+export const tasksRelations = relations(tasks, ({ one }) => ({
+  creator: one(users, {
+    fields: [tasks.creatorId],
+    references: [users.id],
+    relationName: "taskCreation",
+  }),
+  worker: one(users, {
+    fields: [tasks.workerId],
+    references: [users.id],
+    relationName: "taskWork",
+  }),
 }));
 
 export const tokensRelations = relations(tokens, ({ one }) => ({
@@ -100,6 +132,8 @@ export const tokenTransactionsRelations = relations(tokenTransactions, ({ one, m
 // Types for use in application code
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = typeof tasks.$inferInsert;
 export type Token = typeof tokens.$inferSelect;
 export type InsertToken = typeof tokens.$inferInsert;
 export type TokenTransaction = typeof tokenTransactions.$inferSelect;
@@ -108,6 +142,8 @@ export type InsertTokenTransaction = typeof tokenTransactions.$inferInsert;
 // Schemas for validation
 export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
+export const insertTaskSchema = createInsertSchema(tasks);
+export const selectTaskSchema = createSelectSchema(tasks);
 export const insertTokenSchema = createInsertSchema(tokens);
 export const selectTokenSchema = createSelectSchema(tokens);
 export const insertTokenTransactionSchema = createInsertSchema(tokenTransactions);
