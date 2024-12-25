@@ -2,22 +2,33 @@ import { Transaction, Token } from './types';
 
 class BlockchainService {
   private async fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(endpoint, {
-      credentials: 'include',
-      ...options,
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...(options?.headers || {})
+    try {
+      const response = await fetch(endpoint, {
+        credentials: 'include',
+        ...options,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...(options?.headers || {})
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        // Try to parse as JSON first
+        try {
+          const errorJson = JSON.parse(errorText);
+          throw new Error(errorJson.message || errorText);
+        } catch {
+          throw new Error(errorText);
+        }
       }
-    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText);
+      return response.json();
+    } catch (error) {
+      console.error('[BlockchainService] API call failed:', error);
+      throw error;
     }
-
-    return response.json();
   }
 
   async getAllTransactions(): Promise<Transaction[]> {
@@ -43,10 +54,18 @@ class BlockchainService {
   }
 
   async createTransaction(to: string, amount: number): Promise<Transaction> {
-    return this.fetchApi<Transaction>('/api/blockchain/transaction', {
-      method: 'POST',
-      body: JSON.stringify({ to, amount })
-    });
+    console.log('[BlockchainService] Creating transaction:', { to, amount });
+    try {
+      const response = await this.fetchApi<Transaction>('/api/blockchain/transaction', {
+        method: 'POST',
+        body: JSON.stringify({ to, amount })
+      });
+      console.log('[BlockchainService] Transaction created:', response);
+      return response;
+    } catch (error) {
+      console.error('[BlockchainService] Transaction creation failed:', error);
+      throw error;
+    }
   }
 
   async getBalance(address: string): Promise<number> {
