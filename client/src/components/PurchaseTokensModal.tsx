@@ -23,18 +23,7 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BlockchainLoader } from './BlockchainLoader';
-import { loadStripe } from '@stripe/stripe-js';
 import { logErrorToServer } from '@/lib/errorLogging';
-
-// Initialize Stripe outside component
-let stripePromise: Promise<any> | null = null;
-
-const getStripe = () => {
-  if (!stripePromise && import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-    stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
-  }
-  return stripePromise;
-};
 
 const purchaseSchema = z.object({
   amount: z.number()
@@ -59,12 +48,6 @@ export default function PurchaseTokensModal() {
   const purchaseTokensMutation = useMutation({
     mutationFn: async (amount: number) => {
       try {
-        // First get the Stripe instance
-        const stripe = await getStripe();
-        if (!stripe) {
-          throw new Error('Failed to initialize Stripe');
-        }
-
         // Create checkout session
         const response = await fetch('/api/tokens/purchase', {
           method: 'POST',
@@ -77,13 +60,36 @@ export default function PurchaseTokensModal() {
           throw new Error(await response.text());
         }
 
-        const { sessionId } = await response.json();
-
-        // Redirect to Stripe checkout using Stripe.js
-        const { error } = await stripe.redirectToCheckout({ sessionId });
-        if (error) {
-          throw error;
+        const { checkoutUrl } = await response.json();
+        if (!checkoutUrl) {
+          throw new Error('No checkout URL received');
         }
+
+        // Open Stripe checkout in a popup window
+        const popupWidth = 450;
+        const popupHeight = 650;
+        const left = (window.screen.width / 2) - (popupWidth / 2);
+        const top = (window.screen.height / 2) - (popupHeight / 2);
+
+        const popup = window.open(
+          checkoutUrl,
+          'Stripe Checkout',
+          `width=${popupWidth},height=${popupHeight},left=${left},top=${top}`
+        );
+
+        if (!popup) {
+          throw new Error('Popup was blocked. Please allow popups and try again.');
+        }
+
+        // Monitor popup status
+        const checkPopup = setInterval(() => {
+          if (popup.closed) {
+            clearInterval(checkPopup);
+            // User might have completed payment or cancelled
+            // The success/cancel pages will handle the status
+            queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+          }
+        }, 500);
 
         return { success: true };
       } catch (error: any) {
@@ -99,11 +105,10 @@ export default function PurchaseTokensModal() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
       setOpen(false);
       toast({
-        title: 'Success',
-        description: 'Redirecting to checkout...',
+        title: 'Checkout Started',
+        description: 'Please complete your purchase in the popup window',
       });
     },
   });
