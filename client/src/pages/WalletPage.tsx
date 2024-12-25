@@ -25,19 +25,26 @@ interface GroupedTransactions {
 }
 
 export default function WalletPage() {
-  // Hooks - maintain consistent order
+  // Hooks
   const { user } = useUser();
-  const { transactions, createTransaction, isLoading, balance } = useBlockchain();
+  const { transactions = [], createTransaction, isLoading, balance } = useBlockchain();
 
-  // State declarations
+  // State
   const [amount, setAmount] = useState<number>(0);
   const [recipient, setRecipient] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
+  // Debug logging
+  useEffect(() => {
+    console.log('[WalletPage] Balance:', balance);
+    console.log('[WalletPage] Transactions:', transactions);
+  }, [balance, transactions]);
+
   // Memoized handlers
   const groupTransactions = useCallback(() => {
-    if (!transactions || !user?.username) {
+    if (!Array.isArray(transactions) || !user?.username) {
+      console.log('[WalletPage] No transactions or user:', { transactions, username: user?.username });
       return { purchases: [], mining: [] };
     }
 
@@ -72,10 +79,12 @@ export default function WalletPage() {
     try {
       setError(null);
       setIsProcessing(true);
+      console.log('[WalletPage] Creating transaction:', { recipient, amount });
       await createTransaction({ to: recipient, amount });
       setAmount(0);
       setRecipient('');
     } catch (error: any) {
+      console.error('[WalletPage] Transaction failed:', error);
       setError(error.message);
     } finally {
       setIsProcessing(false);
@@ -83,6 +92,7 @@ export default function WalletPage() {
   }, [user, amount, recipient, createTransaction]);
 
   const { purchases, mining } = groupTransactions();
+  const displayBalance = typeof balance === 'number' ? balance : 0;
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -95,7 +105,7 @@ export default function WalletPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{balance ?? 0}</p>
+            <p className="text-3xl font-bold">{displayBalance}</p>
             <p className="text-sm text-muted-foreground">Available tokens</p>
           </CardContent>
         </Card>
@@ -150,7 +160,6 @@ export default function WalletPage() {
         </Card>
       </div>
 
-      {/* Transaction History */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
