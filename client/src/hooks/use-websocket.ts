@@ -32,6 +32,10 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
   } = config;
 
   const connect = () => {
+    if (ws?.readyState === WebSocket.CONNECTING) {
+      return; // Don't create multiple connections
+    }
+
     try {
       ws = new WebSocket(url);
       backoffDelay = initialBackoff;
@@ -53,7 +57,10 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
       };
 
       ws.onclose = () => {
-        console.log('[WebSocket] Connection closed');
+        // Only log first disconnection
+        if (ws?.readyState !== WebSocket.CONNECTING) {
+          console.log('[WebSocket] Connection closed');
+        }
         onStatusChange('disconnected');
 
         // Only attempt reconnect if we haven't reached the limit
@@ -66,9 +73,11 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
         }
       };
 
-      ws.onerror = (event) => {
-        // Just log the error, don't propagate to UI
-        console.log('[WebSocket] Connection error:', event);
+      ws.onerror = () => {
+        // Just log that an error occurred, don't show details
+        if (ws?.readyState !== WebSocket.CONNECTING) {
+          console.log('[WebSocket] Connection error occurred');
+        }
       };
 
     } catch (error) {
@@ -85,7 +94,11 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
 
     if (ws) {
       ws.onclose = null; // Prevent reconnect on manual disconnect
-      ws.close();
+      try {
+        ws.close();
+      } catch (error) {
+        // Ignore close errors
+      }
       ws = null;
     }
   };
@@ -110,12 +123,13 @@ export function useWebSocket(url: string) {
     createWebSocketService({
       url,
       onStatusChange: (newStatus) => {
-        console.log('[WebSocket] Status changed:', newStatus);
         setStatus(newStatus);
       },
       onMessage: (data) => {
-        console.log('[WebSocket] Received message:', data);
-        // Handle incoming messages here
+        // Only log non-ping messages
+        if (data.type !== 'pong') {
+          console.log('[WebSocket] Received message:', data);
+        }
       },
       reconnectAttempts: 5,
       initialBackoff: 1000,

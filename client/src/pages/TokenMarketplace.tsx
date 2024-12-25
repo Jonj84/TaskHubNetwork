@@ -92,12 +92,23 @@ export default function TokenMarketplace() {
     setTokenAmount(clampedValue);
   };
 
-  const verifyPayment = async (sessionId: string, popup: Window) => {
+  const verifyPayment = async (sessionId: string, popup: Window | null) => {
     try {
       console.log('[Payment] Verifying payment for session:', sessionId);
       const response = await fetch(`/api/payment/verify/${sessionId}`);
-      const data = await response.json();
 
+      // Always close popup first to prevent errors
+      if (popup && !popup.closed) {
+        popup.close();
+      }
+
+      if (!response.ok) {
+        // Silently log verification errors
+        console.error('[Payment] Verification failed:', await response.text());
+        return;
+      }
+
+      const data = await response.json();
       console.log('[Payment] Verification response:', data);
 
       // Always refresh token data
@@ -112,23 +123,20 @@ export default function TokenMarketplace() {
         });
       }
     } catch (error) {
-      // Just log the error, don't show to user
+      // Just log verification errors
       console.error('[Payment] Verification error:', error);
-    } finally {
-      // Always close popup and reset processing state
-      if (!popup.closed) {
-        popup.close();
-      }
-      setIsProcessing(false);
     }
   };
 
   const handlePurchase = async () => {
+    let popup: Window | null = null;
+
     try {
       setIsProcessing(true);
 
       if (!isValidAmount(tokenAmount)) {
         console.error('Invalid token amount:', tokenAmount);
+        setIsProcessing(false);
         return;
       }
 
@@ -161,7 +169,7 @@ export default function TokenMarketplace() {
       const left = (window.screen.width / 2) - (popupWidth / 2);
       const top = (window.screen.height / 2) - (popupHeight / 2);
 
-      const popup = window.open(
+      popup = window.open(
         checkoutUrl,
         'Stripe Checkout',
         `width=${popupWidth},height=${popupHeight},left=${left},top=${top}`
@@ -175,9 +183,10 @@ export default function TokenMarketplace() {
 
       // Start payment verification process
       const checkPayment = setInterval(() => {
-        if (popup.closed) {
+        if (popup?.closed) {
           clearInterval(checkPayment);
           verifyPayment(sessionId, popup);
+          setIsProcessing(false);
         }
       }, 1000);
 
@@ -188,6 +197,10 @@ export default function TokenMarketplace() {
 
     } catch (error) {
       console.error('[Token purchase failed] Error:', error);
+      // Always ensure popup is closed
+      if (popup && !popup.closed) {
+        popup.close();
+      }
       setIsProcessing(false);
     }
   };
