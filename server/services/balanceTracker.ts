@@ -24,6 +24,8 @@ export class BalanceTracker {
         }
       });
     }, CACHE_TTL);
+
+    console.log('[BalanceTracker] Initialized with cache TTL:', CACHE_TTL);
   }
 
   static getInstance(): BalanceTracker {
@@ -35,14 +37,14 @@ export class BalanceTracker {
 
   async getBalance(username: string): Promise<number> {
     try {
-      console.log('[Balance] Starting balance calculation for:', username);
+      console.log('[BalanceTracker] Starting balance calculation for:', username);
 
       // Check cache first
       const cached = balanceCache.get(username);
       const now = Date.now();
 
       if (cached && (now - cached.timestamp < CACHE_TTL)) {
-        console.log('[Balance] Cache hit:', {
+        console.log('[BalanceTracker] Cache hit:', {
           username,
           balance: cached.balance,
           age: `${(now - cached.timestamp) / 1000}s`
@@ -71,7 +73,7 @@ export class BalanceTracker {
         timestamp: now
       });
 
-      console.log('[Balance] Calculation complete:', {
+      console.log('[BalanceTracker] Calculation complete:', {
         username,
         balance,
         timestamp: new Date().toISOString()
@@ -82,11 +84,10 @@ export class BalanceTracker {
 
       return balance;
     } catch (error) {
-      console.error('[Balance] Error calculating balance:', {
+      console.error('[BalanceTracker] Error calculating balance:', {
         username,
         error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
+        stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
     }
@@ -94,8 +95,10 @@ export class BalanceTracker {
 
   async forceSyncBalance(username: string): Promise<User> {
     try {
-      console.log('[Balance] Force syncing balance for:', username);
-      balanceCache.delete(username);
+      console.log('[BalanceTracker] Force syncing balance for:', username);
+
+      // Invalidate cache
+      this.invalidateCache(username);
 
       // Calculate actual balance from tokens
       const actualBalance = await this.getBalance(username);
@@ -110,7 +113,7 @@ export class BalanceTracker {
         .where(eq(users.username, username))
         .returning();
 
-      console.log('[Balance] Force sync completed:', {
+      console.log('[BalanceTracker] Force sync completed:', {
         username,
         previousBalance: updatedUser.tokenBalance,
         newBalance: actualBalance,
@@ -119,17 +122,17 @@ export class BalanceTracker {
 
       return updatedUser;
     } catch (error) {
-      console.error('[Balance] Force sync failed:', {
+      console.error('[BalanceTracker] Force sync failed:', {
         username,
         error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
+        stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
     }
   }
 
   invalidateCache(username: string) {
+    console.log('[BalanceTracker] Invalidating cache for:', username);
     balanceCache.delete(username);
   }
 }

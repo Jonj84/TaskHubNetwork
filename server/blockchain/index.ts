@@ -36,28 +36,16 @@ class Blockchain {
       });
 
       // Convert to blockchain transactions
-      this.chain = existingTransactions.map(tx => {
-        const transaction = {
-          id: tx.id.toString(),
-          from: tx.fromAddress || 'SYSTEM',
-          to: tx.toAddress || tx.user.username,
-          amount: tx.tokenIds?.length || 0,
-          timestamp: tx.timestamp.getTime(),
-          type: tx.type as 'transfer' | 'mint',
-          tokenIds: tx.tokenIds || [],
-          metadata: tx.metadata
-        };
-
-        console.log('[Blockchain] Mapped transaction:', {
-          id: transaction.id,
-          from: transaction.from,
-          to: transaction.to,
-          amount: transaction.amount,
-          type: transaction.type
-        });
-
-        return transaction;
-      });
+      this.chain = existingTransactions.map(tx => ({
+        id: tx.id.toString(),
+        from: tx.fromAddress || 'SYSTEM',
+        to: tx.toAddress || tx.user.username,
+        amount: tx.tokenIds?.length || 0,
+        timestamp: tx.timestamp.getTime(),
+        type: tx.type as 'transfer' | 'mint',
+        tokenIds: tx.tokenIds || [],
+        metadata: tx.metadata
+      }));
 
       console.log('[Blockchain] Chain initialization complete:', {
         totalTransactions: this.chain.length,
@@ -92,7 +80,7 @@ class Blockchain {
         timestamp: new Date().toISOString()
       });
 
-      const mappedTokens = userTokens.map(token => ({
+      return userTokens.map(token => ({
         id: token.id,
         status: token.status,
         metadata: token.metadata || {
@@ -104,14 +92,6 @@ class Blockchain {
         mintedInBlock: token.mintedInBlock,
         transactionId: token.transactionId
       }));
-
-      console.log('[Blockchain] Mapped tokens:', {
-        username,
-        mappedCount: mappedTokens.length,
-        sampleToken: mappedTokens[0]?.id || 'none'
-      });
-
-      return mappedTokens;
     } catch (error) {
       console.error('[Blockchain] Failed to fetch tokens:', {
         username,
@@ -122,10 +102,11 @@ class Blockchain {
     }
   }
 
-  async getBalance(address: string): Promise<number> {
-    console.log('[Balance] Starting balance calculation for:', address);
+  async getBalance(username: string): Promise<number> {
     try {
-      // Get detailed token status for address
+      console.log('[Blockchain] Starting balance calculation for:', username);
+
+      // Get active tokens count
       const result = await db
         .select({
           activeTokens: sql<number>`COUNT(*)`
@@ -133,25 +114,25 @@ class Blockchain {
         .from(tokens)
         .where(
           and(
-            eq(tokens.owner, address),
+            eq(tokens.owner, username),
             eq(tokens.status, 'active')
           )
         );
 
       const balance = Number(result[0]?.activeTokens || 0);
-      console.log('[Balance] Final calculation:', {
-        address,
+
+      console.log('[Blockchain] Balance calculated:', {
+        username,
         balance,
         timestamp: new Date().toISOString()
       });
 
       return balance;
     } catch (error) {
-      console.error('[Balance] Error calculating balance:', {
-        address,
+      console.error('[Blockchain] Balance calculation error:', {
+        username,
         error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
+        stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
     }
@@ -362,10 +343,11 @@ class Blockchain {
 // Initialize blockchain service
 const blockchain = new Blockchain();
 
+// Export individual methods to ensure type safety and proper function binding
 export const blockchainService = {
   createTransaction: blockchain.createTransaction.bind(blockchain),
   getAllTransactions: blockchain.getAllTransactions.bind(blockchain),
   getPendingTransactions: blockchain.getPendingTransactions.bind(blockchain),
   getBalance: blockchain.getBalance.bind(blockchain),
   getTokens: blockchain.getTokens.bind(blockchain)
-};
+} as const;

@@ -1,0 +1,34 @@
+[vite] connecting...
+[vite] connected.
+WebSocket error: 
+Event {isTrusted: true}
+isTrusted: true
+get isTrusted: ƒ get isTrusted()
+[[Prototype]]: Event
+
+WebSocket connection closed
+[Blockchain] Tokens fetch error: 
+TypeError {}
+message: "blockchainService.getTokens is not a function"
+stack: "TypeError: blockchainService.getTokens is not a function↵ at queryFn (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/src/hooks/use-blockchain.ts:26:49)↵ at Object.fetchFn [as fn] (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=46b8d0d2:840:14)↵ at run (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=46b8d0d2:494:49)↵ at Object.start (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=46b8d0d2:536:9)↵ at _a4.fetch (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=46b8d0d2:926:41)↵ at _a9.executeFetch_fn (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=46b8d0d2:2211:51)↵ at _a9.onSubscribe (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=46b8d0d2:1898:74)↵ at _a9.subscribe (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=46b8d0d2:24:10)↵ at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=46b8d0d2:3022:60↵ at subscribeToStore (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-XQLYTHWV.js?v=46b8d0d2:11984:18)"
+get stack: ƒ ()
+set stack: ƒ ()
+[[Prototype]]: Object
+
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 0}
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 0}
+[BlockchainService] Failed to fetch balance: 
+SyntaxError {}
+message: "Unexpected token '<', "<!DOCTYPE "... is not valid JSON"
+stack: "SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON"
+get stack: ƒ ()
+set stack: ƒ ()
+[[Prototype]]: Object
+
+[Blockchain] Balance fetched: 
+Object {username: "jon", balance: 0}
+Initiating purchase for 2754 tokens
