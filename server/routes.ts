@@ -119,9 +119,25 @@ export function registerRoutes(app: Express): Server {
 
   app.get('/api/tasks', async (_req: Request, res) => {
     try {
+      console.log('[API] Fetching tasks');
       const allTasks = await db.query.tasks.findMany({
-        orderBy: (tasks, { desc }) => [desc(tasks.created_at)]
+        orderBy: (tasks, { desc }) => [desc(tasks.created_at)],
+        with: {
+          creator: true,
+          worker: true
+        }
       });
+
+      console.log('[API] Tasks fetched:', {
+        count: allTasks.length,
+        tasks: allTasks.map(t => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          creatorId: t.creatorId
+        }))
+      });
+
       res.json(allTasks);
     } catch (error: any) {
       console.error('[API] Task fetch error:', error);
