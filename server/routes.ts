@@ -1,16 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { createWebSocketServer } from './websocket';
 import { log } from "./vite";
 import { setupAuth } from "./auth";
-import { db } from "@db";
-import { tokenTransactions } from "@db/schema";
-import { eq } from "drizzle-orm";
+import express from "express";
 import { blockchainService } from './blockchain';
 import { balanceTracker } from './services/balanceTracker';
 import { createStripeSession, handleStripeWebhook, verifyStripePayment } from './payments';
 import type { Request, Response, NextFunction } from "express";
-import express from "express";
 
 // Auth request type
 interface AuthRequest extends Request {
@@ -26,24 +22,6 @@ interface AuthRequest extends Request {
 export function registerRoutes(app: Express): Server {
   // Create HTTP server
   const httpServer = createServer(app);
-
-  // Set up WebSocket server
-  try {
-    log('[Server] Initializing WebSocket server');
-    createWebSocketServer(httpServer).catch(error => {
-      log(`[Server] WebSocket initialization error: ${error instanceof Error ? error.message : String(error)}`);
-    });
-    log('[Server] WebSocket server initialized successfully');
-  } catch (error) {
-    log(`[Server] WebSocket setup error: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  // Set up core middleware
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: false }));
-
-  // Set up authentication
-  setupAuth(app);
 
   // Token and Payment Routes
   app.post('/api/tokens/calculate-price', (req: AuthRequest, res: Response) => {
@@ -120,9 +98,6 @@ export function registerRoutes(app: Express): Server {
 
       const result = await verifyStripePayment(req.query.session_id as string);
 
-      // Set proper content type
-      res.setHeader('Content-Type', 'application/json');
-
       if (result.success) {
         // Force sync user's balance
         await balanceTracker.forceSyncBalance(req.user.username);
@@ -140,9 +115,6 @@ export function registerRoutes(app: Express): Server {
       }
     } catch (error: any) {
       console.error('[API] Payment verification error:', error);
-
-      // Set proper content type and return neutral response
-      res.setHeader('Content-Type', 'application/json');
       res.json({
         success: false,
         message: 'Payment verification in progress',
@@ -183,7 +155,7 @@ export function registerRoutes(app: Express): Server {
       const { address } = req.params;
       console.log('[API] Fetching balance for:', address);
 
-      const balance = await blockchainService.getBalance(address);
+      const balance = await balanceTracker.getBalance(address);
       console.log('[API] Balance result:', { address, balance });
 
       res.json({ balance });
@@ -212,24 +184,6 @@ export function registerRoutes(app: Express): Server {
         error: error.message
       });
     }
-  });
-
-  // Final error handler - needs to be after all routes
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('[API] Unhandled Error:', err);
-
-    // Return neutral response for payment-related errors
-    if (err.message?.toLowerCase().includes('payment') || _req.path.includes('/payment/')) {
-      return res.json({
-        success: false,
-        message: 'Processing payment',
-        code: 'PAYMENT_IN_PROGRESS'
-      });
-    }
-
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-    res.status(status).json({ message });
   });
 
   return httpServer;

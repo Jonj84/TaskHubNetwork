@@ -1,0 +1,140 @@
+
+DOMException {}
+stack: "SyntaxError: Failed to construct 'WebSocket': The URL 'wss://localhost:undefined/' is invalid.↵ at new t (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:218737)↵ at setupWebSocket (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@vite/client:535:19)↵ at fallback (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@vite/client:508:16)↵ at WebSocket.<anonymous> (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@vite/client:551:7)"
+get stack: ƒ ()
+length: 0
+name: ""
+[[Prototype]]: ƒ ()
+set stack: ƒ ()
+length: 1
+name: ""
+[[Prototype]]: ƒ ()
+[[Prototype]]: DOMException
+ABORT_ERR: 20
+DATA_CLONE_ERR: 25
+DOMSTRING_SIZE_ERR: 2
+HIERARCHY_REQUEST_ERR: 3
+INDEX_SIZE_ERR: 1
+INUSE_ATTRIBUTE_ERR: 10
+INVALID_ACCESS_ERR: 15
+INVALID_CHARACTER_ERR: 5
+INVALID_MODIFICATION_ERR: 13
+INVALID_NODE_TYPE_ERR: 24
+INVALID_STATE_ERR: 11
+NAMESPACE_ERR: 14
+NETWORK_ERR: 19
+NOT_FOUND_ERR: 8
+NOT_SUPPORTED_ERR: 9
+NO_DATA_ALLOWED_ERR: 6
+NO_MODIFICATION_ALLOWED_ERR: 7
+QUOTA_EXCEEDED_ERR: 22
+SECURITY_ERR: 18
+SYNTAX_ERR: 12
+TIMEOUT_ERR: 23
+TYPE_MISMATCH_ERR: 17
+URL_MISMATCH_ERR: 21
+VALIDATION_ERR: 16
+WRONG_DOCUMENT_ERR: 4
+code: 12
+get code: ƒ get code()
+length: 0
+name: "get code"
+[[Prototype]]: ƒ ()
+message: "Failed to construct 'WebSocket': The URL 'wss://localhost:undefined/' is invalid."
+get message: ƒ get message()
+length: 0
+name: "get message"
+[[Prototype]]: ƒ ()
+name: "SyntaxError"
+get name: ƒ get name()
+length: 0
+name: "get name"
+[[Prototype]]: ƒ ()
+constructor: ƒ DOMException()
+ABORT_ERR: 20
+DATA_CLONE_ERR: 25
+DOMSTRING_SIZE_ERR: 2
+HIERARCHY_REQUEST_ERR: 3
+INDEX_SIZE_ERR: 1
+INUSE_ATTRIBUTE_ERR: 10
+INVALID_ACCESS_ERR: 15
+INVALID_CHARACTER_ERR: 5
+INVALID_MODIFICATION_ERR: 13
+INVALID_NODE_TYPE_ERR: 24
+INVALID_STATE_ERR: 11
+NAMESPACE_ERR: 14
+NETWORK_ERR: 19
+NOT_FOUND_ERR: 8
+NOT_SUPPORTED_ERR: 9
+NO_DATA_ALLOWED_ERR: 6
+NO_MODIFICATION_ALLOWED_ERR: 7
+QUOTA_EXCEEDED_ERR: 22
+SECURITY_ERR: 18
+SYNTAX_ERR: 12
+TIMEOUT_ERR: 23
+TYPE_MISMATCH_ERR: 17
+URL_MISMATCH_ERR: 21
+VALIDATION_ERR: 16
+WRONG_DOCUMENT_ERR: 4
+arguments: null
+caller: null
+length: 0
+name: "DOMException"
+prototype: DOMException
+ABORT_ERR: 20
+DATA_CLONE_ERR: 25
+DOMSTRING_SIZE_ERR: 2
+HIERARCHY_REQUEST_ERR: 3
+INDEX_SIZE_ERR: 1
+INUSE_ATTRIBUTE_ERR: 10
+INVALID_ACCESS_ERR: 15
+INVALID_CHARACTER_ERR: 5
+INVALID_MODIFICATION_ERR: 13
+INVALID_NODE_TYPE_ERR: 24
+INVALID_STATE_ERR: 11
+NAMESPACE_ERR: 14
+NETWORK_ERR: 19
+NOT_FOUND_ERR: 8
+NOT_SUPPORTED_ERR: 9
+NO_DATA_ALLOWED_ERR: 6
+NO_MODIFICATION_ALLOWED_ERR: 7
+QUOTA_EXCEEDED_ERR: 22
+SECURITY_ERR: 18
+SYNTAX_ERR: 12
+TIMEOUT_ERR: 23
+TYPE_MISMATCH_ERR: 17
+URL_MISMATCH_ERR: 21
+VALIDATION_ERR: 16
+WRONG_DOCUMENT_ERR: 4
+code: 12
+get code: ƒ get code()
+message: "Failed to construct 'WebSocket': The URL 'wss://localhost:undefined/' is invalid."
+get message: ƒ get message()
+name: "SyntaxError"
+get name: ƒ get name()
+constructor: ƒ DOMException()
+Symbol(Symbol.toStringTag): undefined
+[[Prototype]]: Object
+[[Prototype]]: ƒ ()
+apply: ƒ apply()
+arguments: "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them"
+get arguments: ƒ ()
+set arguments: ƒ ()
+bind: ƒ bind()
+call: ƒ call()
+caller: "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them"
+get caller: ƒ ()
+set caller: ƒ ()
+constructor: ƒ Function()
+length: 0
+name: ""
+toString: ƒ toString()
+Symbol(Symbol.hasInstance): undefined
+[[Prototype]]: Object
+Symbol(Symbol.toStringTag): undefined
+[[Prototype]]: Object
+constructor: ƒ DOMException()
+message: "Failed to construct 'WebSocket': The URL 'wss://localhost:undefined/' is invalid."
+name: "SyntaxError"
+toString: ƒ toString()
+[[Prototype]]: Object

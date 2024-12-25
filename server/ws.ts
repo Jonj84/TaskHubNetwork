@@ -2,7 +2,7 @@ import type { Server } from "http";
 import type { Request } from "express";
 import { log } from "./vite";
 import { balanceTracker } from './services/balanceTracker';
-import { WebSocket, WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 
 // WebSocket connection states
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -16,7 +16,6 @@ interface ClientConnection {
   sessionId: string;
 }
 
-// WebSocket message types
 interface WebSocketMessage {
   type: string;
   data?: any;
@@ -53,10 +52,8 @@ class WebSocketManager {
   private setupServer(server: Server) {
     server.on('upgrade', async (request: Request, socket: any, head: Buffer) => {
       try {
-        // Skip Vite HMR connections
+        // Skip Vite HMR connections without destroying the socket
         if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
-          log('[WebSocket] Skipping Vite HMR connection');
-          socket.destroy();
           return;
         }
 
@@ -65,7 +62,7 @@ class WebSocketManager {
         try {
           urlPath = new URL(
             request.url || '', 
-            `http://${request.headers.host || 'localhost'}`
+            `http://${request.headers.host || '0.0.0.0'}`
           ).pathname;
           log(`[WebSocket] Processing upgrade request for path: ${urlPath}`);
         } catch (error) {
@@ -108,7 +105,7 @@ class WebSocketManager {
 
     // Clean up existing connections for this user
     if (userId) {
-      Array.from(this.connections.entries()).forEach(([oldSessionId, connection]) => {
+      for (const [oldSessionId, connection] of this.connections.entries()) {
         if (connection.userId === userId) {
           log(`[WebSocket] Cleaning up old connection for user: ${userId}`);
           if (connection.ws.readyState === WebSocket.OPEN) {
@@ -116,7 +113,7 @@ class WebSocketManager {
           }
           this.connections.delete(oldSessionId);
         }
-      });
+      }
     }
 
     const connection: ClientConnection = {
@@ -130,18 +127,13 @@ class WebSocketManager {
 
     this.connections.set(sessionId, connection);
 
-    ws.on('pong', () => this.handlePong(sessionId));
-    ws.on('message', (data: WebSocket.RawData) => this.handleMessage(sessionId, data));
-    ws.on('close', () => this.handleClose(sessionId));
-    ws.on('error', (error) => {
-      log(`[WebSocket] Error for connection ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
-      this.handleClose(sessionId);
-    });
-
-    // Send initial connection success message
+    // Send initial connection confirmation
     this.sendMessage(ws, {
       type: 'connection_established',
-      data: { sessionId }
+      data: { 
+        sessionId,
+        timestamp: Date.now()
+      }
     });
 
     // Send initial balance for authenticated users
@@ -156,50 +148,54 @@ class WebSocketManager {
         log(`[WebSocket] Initial balance fetch error: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-  }
 
-  private handlePong(sessionId: string) {
-    const connection = this.connections.get(sessionId);
-    if (connection) {
-      connection.isAlive = true;
-      connection.lastPing = Date.now();
-    }
-  }
-
-  private handleMessage(sessionId: string, data: WebSocket.RawData) {
-    try {
+    // Set up WebSocket event handlers
+    ws.on('pong', () => {
       const connection = this.connections.get(sessionId);
-      if (!connection) {
-        log(`[WebSocket] Message received for unknown connection: ${sessionId}`);
-        return;
+      if (connection) {
+        connection.isAlive = true;
+        connection.lastPing = Date.now();
       }
+    });
 
-      const message = JSON.parse(data.toString()) as WebSocketMessage;
-
-      if (message.type !== 'ping') {
-        log(`[WebSocket] Received message: ${message.type} from ${sessionId}`);
-      }
-
-      switch (message.type) {
-        case 'ping':
-          this.sendMessage(connection.ws, { type: 'pong' });
-          break;
-        default:
-          log(`[WebSocket] Unknown message type: ${message.type}`);
-      }
-    } catch (error) {
-      log(`[WebSocket] Message handling error: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  private sendMessage(ws: WebSocket, message: WebSocketMessage) {
-    if (ws.readyState === WebSocket.OPEN) {
+    ws.on('message', (data: WebSocket.RawData) => {
       try {
-        ws.send(JSON.stringify(message));
+        const message = JSON.parse(data.toString()) as WebSocketMessage;
+
+        if (message.type !== 'ping') {
+          log(`[WebSocket] Received message: ${message.type} from ${sessionId}`);
+        }
+
+        switch (message.type) {
+          case 'ping':
+            this.sendMessage(ws, { type: 'pong' });
+            break;
+          default:
+            log(`[WebSocket] Unknown message type: ${message.type}`);
+        }
       } catch (error) {
-        log(`[WebSocket] Send message error: ${error instanceof Error ? error.message : String(error)}`);
+        log(`[WebSocket] Message handling error: ${error instanceof Error ? error.message : String(error)}`);
       }
-    }
+    });
+
+    ws.on('close', () => {
+      log(`[WebSocket] Connection closed: ${sessionId}`);
+      this.connections.delete(sessionId);
+    });
+
+    ws.on('error', (error) => {
+      log(`[WebSocket] Error for connection ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+      this.handleClose(sessionId);
+    });
+
+    // Start ping interval for this connection
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, WebSocketManager.PING_INTERVAL);
+
+    ws.on('close', () => clearInterval(pingInterval));
   }
 
   private handleClose(sessionId: string) {
@@ -225,6 +221,16 @@ class WebSocketManager {
         this.handleClose(id);
       }
     });
+  }
+
+  private sendMessage(ws: WebSocket, message: WebSocketMessage) {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(message));
+      } catch (error) {
+        log(`[WebSocket] Send message error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   }
 
   public cleanup() {
