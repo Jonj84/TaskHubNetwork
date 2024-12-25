@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
+import { setupAuth } from "./auth";
 import { createStripeSession, handleStripeWebhook, verifyStripePayment } from "./payments";
 import { db } from "@db";
 import { tokenTransactions } from "@db/schema";
@@ -91,6 +92,9 @@ function logError(error: any, req: Request): ErrorLog {
 }
 
 export function registerRoutes(app: Express): Server {
+  // Set up auth routes first
+  setupAuth(app);
+
   // Set up raw body parsing for Stripe webhook
   app.post(
     "/api/webhooks/stripe",
@@ -108,9 +112,9 @@ export function registerRoutes(app: Express): Server {
       const transactions = blockchainService.getAllTransactions();
       res.json(transactions);
     } catch (error: any) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: 'Failed to fetch transactions',
-        error: error.message 
+        error: error.message
       });
     }
   });
@@ -120,9 +124,9 @@ export function registerRoutes(app: Express): Server {
       const transactions = blockchainService.getPendingTransactions();
       res.json(transactions);
     } catch (error: any) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: 'Failed to fetch pending transactions',
-        error: error.message 
+        error: error.message
       });
     }
   });
@@ -143,9 +147,9 @@ export function registerRoutes(app: Express): Server {
 
       res.json(transaction);
     } catch (error: any) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: 'Failed to create transaction',
-        error: error.message 
+        error: error.message
       });
     }
   });
@@ -156,9 +160,9 @@ export function registerRoutes(app: Express): Server {
       const balance = blockchainService.getBalance(address);
       res.json({ balance });
     } catch (error: any) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: 'Failed to fetch balance',
-        error: error.message 
+        error: error.message
       });
     }
   });

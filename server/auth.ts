@@ -34,6 +34,8 @@ declare global {
       id: number;
       username: string;
       tokenBalance: number;
+      created_at: Date;
+      updated_at: Date;
     }
   }
 }
@@ -79,7 +81,13 @@ export function setupAuth(app: Express) {
           return done(null, false, { message: "Incorrect password" });
         }
 
-        return done(null, user);
+        return done(null, {
+          id: user.id,
+          username: user.username,
+          tokenBalance: user.token_balance,
+          created_at: user.created_at,
+          updated_at: user.updated_at
+        });
       } catch (err) {
         return done(err);
       }
@@ -97,7 +105,18 @@ export function setupAuth(app: Express) {
         .from(users)
         .where(eq(users.id, id))
         .limit(1);
-      done(null, user);
+
+      if (!user) {
+        return done(null, false);
+      }
+
+      done(null, {
+        id: user.id,
+        username: user.username,
+        tokenBalance: user.token_balance,
+        created_at: user.created_at,
+        updated_at: user.updated_at
+      });
     } catch (err) {
       done(err);
     }
@@ -106,6 +125,10 @@ export function setupAuth(app: Express) {
   app.post("/api/register", async (req, res, next) => {
     try {
       const { username, password } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).send("Username and password are required");
+      }
 
       const [existingUser] = await db
         .select()
@@ -124,15 +147,27 @@ export function setupAuth(app: Express) {
         .values({
           username,
           password: hashedPassword,
-          tokenBalance: 0, // Start with 0 tokens instead of 10
+          token_balance: 0,
         })
         .returning();
 
-      req.login(newUser, (err) => {
+      req.login({
+        id: newUser.id,
+        username: newUser.username,
+        tokenBalance: newUser.token_balance,
+        created_at: newUser.created_at,
+        updated_at: newUser.updated_at
+      }, (err) => {
         if (err) {
           return next(err);
         }
-        return res.json({ id: newUser.id, username: newUser.username, tokenBalance: newUser.tokenBalance });
+        return res.json({
+          id: newUser.id,
+          username: newUser.username,
+          tokenBalance: newUser.token_balance,
+          created_at: newUser.created_at,
+          updated_at: newUser.updated_at
+        });
       });
     } catch (error) {
       next(error);
@@ -151,7 +186,7 @@ export function setupAuth(app: Express) {
         if (err) {
           return next(err);
         }
-        return res.json({ id: user.id, username: user.username, tokenBalance: user.tokenBalance });
+        return res.json(user);
       });
     })(req, res, next);
   });
