@@ -16,6 +16,7 @@ class Block {
     this.nonce = 0;
     this.tokens = new Map<string, Token>();
     this.hash = this.calculateHash();
+    console.log('Block created:', { timestamp, previousHash, difficulty });
   }
 
   calculateHash(): string {
@@ -37,8 +38,11 @@ class Block {
       this.hash = this.calculateHash();
     }
 
+    console.log('Block mined!', { hash: this.hash });
+
     // Only create mining reward if it's not the genesis block
     if (minerAddress !== 'GENESIS') {
+      console.log('Creating mining reward for:', minerAddress);
       const rewardTokenId = uuidv4();
       const rewardToken: Token = {
         id: rewardTokenId,
@@ -52,6 +56,7 @@ class Block {
       };
 
       this.tokens.set(rewardTokenId, rewardToken);
+      console.log('Added reward token:', { tokenId: rewardTokenId, owner: minerAddress });
 
       const rewardTransaction: Transaction = {
         id: uuidv4(),
@@ -64,9 +69,8 @@ class Block {
       };
 
       this.transactions.push(rewardTransaction);
+      console.log('Added reward transaction:', rewardTransaction);
     }
-
-    console.log('Block mined!', { hash: this.hash.substring(0, 10) });
   }
 
   getTokens(): Map<string, Token> {
@@ -82,6 +86,7 @@ class Blockchain {
   private readonly maxSupply: number;
 
   constructor() {
+    console.log('Initializing blockchain...');
     this.chain = [];
     this.difficulty = 4;
     this.pendingTransactions = [];
@@ -91,69 +96,18 @@ class Blockchain {
   }
 
   private createGenesisBlock(): void {
+    console.log('Creating genesis block...');
     const genesisBlock = new Block(Date.now(), [], '0');
     genesisBlock.mineBlock('GENESIS');
     this.chain.push(genesisBlock);
 
     // Add genesis block tokens to registry
     const genesisTokens = genesisBlock.getTokens();
+    console.log('Genesis block tokens:', Array.from(genesisTokens.entries()));
     genesisTokens.forEach((token, id) => {
       this.tokenRegistry.set(id, token);
     });
-  }
-
-  createTransaction(from: string, to: string, amount: number): TransactionResult {
-    if (!from || !to) {
-      throw new Error('Transaction must include from and to addresses');
-    }
-
-    if (amount <= 0) {
-      throw new Error('Transaction amount must be positive');
-    }
-
-    // Check balance (except for system transactions)
-    if (from !== 'SYSTEM') {
-      const balance = this.getBalance(from);
-      if (balance < amount) {
-        throw new Error(`Insufficient balance: ${balance} < ${amount}`);
-      }
-    }
-
-    // Generate unique IDs for tokens being transferred
-    const tokenIds = Array.from({ length: amount }, () => uuidv4());
-
-    const transaction: Transaction = {
-      id: uuidv4(),
-      from,
-      to,
-      amount,
-      timestamp: Date.now(),
-      type: from === 'SYSTEM' ? 'mint' : 'transfer',
-      tokenIds
-    };
-
-    this.pendingTransactions.push(transaction);
-
-    // Mine block immediately for simplicity
-    const block = this.minePendingTransactions(to);
-    if (!block) {
-      throw new Error('Failed to mine block');
-    }
-
-    // Update token ownership
-    tokenIds.forEach(tokenId => {
-      const token = this.tokenRegistry.get(tokenId);
-      if (token) {
-        token.owner = to;
-        token.metadata.previousTransfers.push(transaction.id);
-      }
-    });
-
-    return {
-      id: transaction.id,
-      tokenIds,
-      blockHash: block.hash
-    };
+    console.log('Genesis block created, token registry size:', this.tokenRegistry.size);
   }
 
   getAllTransactions(): Transaction[] {
@@ -170,16 +124,80 @@ class Blockchain {
   }
 
   getBalance(address: string): number {
-    return Array.from(this.tokenRegistry.values())
+    const balance = Array.from(this.tokenRegistry.values())
       .filter(token => token.owner === address)
       .length;
+    console.log('Getting balance for:', address, 'Balance:', balance);
+    return balance;
   }
 
   getTokenMetadata(tokenId: string): Token | undefined {
     return this.tokenRegistry.get(tokenId);
   }
 
+  createTransaction(from: string, to: string, amount: number): TransactionResult {
+    console.log('Creating transaction:', { from, to, amount });
+    if (!from || !to) {
+      throw new Error('Transaction must include from and to addresses');
+    }
+
+    if (amount <= 0) {
+      throw new Error('Transaction amount must be positive');
+    }
+
+    // Check balance (except for system transactions)
+    if (from !== 'SYSTEM') {
+      const balance = this.getBalance(from);
+      console.log('Checking balance:', { address: from, balance, required: amount });
+      if (balance < amount) {
+        throw new Error(`Insufficient balance: ${balance} < ${amount}`);
+      }
+    }
+
+    // Generate unique IDs for tokens being transferred
+    const tokenIds = Array.from({ length: amount }, () => uuidv4());
+    console.log('Generated token IDs:', tokenIds);
+
+    const transaction: Transaction = {
+      id: uuidv4(),
+      from,
+      to,
+      amount,
+      timestamp: Date.now(),
+      type: from === 'SYSTEM' ? 'mint' : 'transfer',
+      tokenIds
+    };
+
+    this.pendingTransactions.push(transaction);
+    console.log('Added transaction to pending:', transaction);
+
+    // Mine block immediately for simplicity
+    const block = this.minePendingTransactions(to);
+    if (!block) {
+      throw new Error('Failed to mine block');
+    }
+
+    // Update token ownership
+    tokenIds.forEach(tokenId => {
+      const token = this.tokenRegistry.get(tokenId);
+      if (token) {
+        token.owner = to;
+        token.metadata.previousTransfers.push(transaction.id);
+        console.log('Updated token ownership:', { tokenId, newOwner: to });
+      }
+    });
+
+    const result = {
+      id: transaction.id,
+      tokenIds,
+      blockHash: block.hash
+    };
+    console.log('Transaction completed:', result);
+    return result;
+  }
+
   private minePendingTransactions(minerAddress: string): Block | undefined {
+    console.log('Mining pending transactions for:', minerAddress);
     if (this.tokenRegistry.size >= this.maxSupply) {
       console.log('Maximum token supply reached');
       return undefined;
@@ -196,18 +214,21 @@ class Blockchain {
 
     // Add new tokens to global registry
     const blockTokens = block.getTokens();
+    console.log('New block tokens:', Array.from(blockTokens.entries()));
     blockTokens.forEach((token, id) => {
       this.tokenRegistry.set(id, token);
     });
 
     this.chain.push(block);
     this.pendingTransactions = [];
+    console.log('Block added to chain, new chain length:', this.chain.length);
 
     return block;
   }
 }
 
 // Create singleton instance
+console.log('Creating blockchain service singleton...');
 const blockchain = new Blockchain();
 
 export const blockchainService = {
