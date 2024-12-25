@@ -23,19 +23,24 @@ class BlockchainService {
     return this.fetchApi<Transaction[]>('/api/blockchain/pending');
   }
 
-  async createTransaction(from: string, to: string, amount: number): Promise<Transaction> {
+  async createTransaction(to: string, amount: number): Promise<Transaction> {
     return this.fetchApi<Transaction>('/api/blockchain/transaction', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ from, to, amount })
+      body: JSON.stringify({ to, amount })
     });
   }
 
   async getBalance(address: string): Promise<number> {
-    const response = await this.fetchApi<{ balance: number }>(`/api/blockchain/balance/${address}`);
-    return response.balance;
+    try {
+      const response = await this.fetchApi<{ balance: number }>(`/api/blockchain/balance/${address}`);
+      return response.balance;
+    } catch (error) {
+      console.error('Failed to fetch balance:', error);
+      return 0;
+    }
   }
 
   async getTokenMetadata(tokenId: string): Promise<Token | undefined> {

@@ -9,7 +9,7 @@ export function useBlockchain() {
   const { toast } = useToast();
   const { user } = useUser();
 
-  const { data: transactions = [], isLoading } = useQuery<Transaction[]>({
+  const { data: transactions = [], isLoading: transactionsLoading } = useQuery<Transaction[]>({
     queryKey: ['/api/blockchain/transactions'],
     queryFn: () => blockchainService.getAllTransactions(),
     staleTime: 10000, // Consider data fresh for 10 seconds
@@ -21,13 +21,24 @@ export function useBlockchain() {
     staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
+  // Add a new query for fetching balance
+  const { data: balance = 0, isLoading: balanceLoading } = useQuery<number>({
+    queryKey: ['/api/blockchain/balance', user?.username],
+    queryFn: () => {
+      if (!user?.username) return Promise.resolve(0);
+      return blockchainService.getBalance(user.username);
+    },
+    enabled: !!user?.username,
+    staleTime: 5000, // Consider data fresh for 5 seconds
+  });
+
   const createTransactionMutation = useMutation({
     mutationFn: async ({ to, amount }: { to: string; amount: number }) => {
       if (!user) throw new Error("Must be logged in");
 
       try {
-        blockchainService.createTransaction(
-          user.username, // Using username as the wallet address for now
+        await blockchainService.createTransaction(
+          user.username,
           to,
           amount
         );
@@ -42,8 +53,10 @@ export function useBlockchain() {
       }
     },
     onSuccess: () => {
+      // Invalidate both transactions and balance queries
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain/transactions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain/pending'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/blockchain/balance'] });
       toast({
         title: 'Success',
         description: 'Transaction created successfully',
@@ -51,15 +64,11 @@ export function useBlockchain() {
     },
   });
 
-  const getBalance = (address: string) => {
-    return blockchainService.getBalance(address);
-  };
-
   return {
     transactions,
     pendingTransactions,
-    isLoading,
+    balance,
+    isLoading: transactionsLoading || balanceLoading,
     createTransaction: createTransactionMutation.mutateAsync,
-    getBalance,
   };
 }

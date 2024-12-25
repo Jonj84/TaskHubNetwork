@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Transaction, Token, TransactionResult } from '../../client/src/lib/blockchain/types';
 import { db } from "@db";
 import { tokens, users, tokenTransactions } from "@db/schema";
-import { sql, eq, count } from 'drizzle-orm';
+import { sql, eq, count, and } from 'drizzle-orm';
 
 class Blockchain {
   private chain: Transaction[];
@@ -25,11 +25,16 @@ class Blockchain {
   async getBalance(address: string): Promise<number> {
     console.log('[Balance Check] Starting balance calculation for:', address);
     try {
-      // Count tokens owned by the address
+      // Count active tokens owned by the address
       const result = await db
         .select({ count: count() })
         .from(tokens)
-        .where(eq(tokens.owner, address));
+        .where(
+          and(
+            eq(tokens.owner, address),
+            eq(tokens.status, 'active')
+          )
+        );
 
       const balance = Number(result[0].count);
       console.log('[Balance Check] Result:', { 
@@ -114,6 +119,7 @@ class Blockchain {
           id: tokenId,
           creator: from,
           owner: to,
+          status: 'active',
           mintedInBlock: 'immediate',
           metadata: {
             createdAt: new Date(),
@@ -131,6 +137,7 @@ class Blockchain {
           id: tokenId,
           creator: 'SYSTEM',
           owner: to,
+          status: 'active',
           mintedInBlock: 'immediate',
           metadata: {
             createdAt: new Date(),
@@ -162,6 +169,8 @@ class Blockchain {
         const [transaction] = await tx.insert(tokenTransactions).values({
           userId: toUser.id,
           type: from === 'SYSTEM' ? 'mint' : 'transfer',
+          status: 'completed',
+          paymentId: metadata?.paymentId,
           fromAddress: from,
           toAddress: to,
           tokenIds: [...baseTokenIds, ...bonusTokenIds],
@@ -182,7 +191,7 @@ class Blockchain {
           timestamp: transaction.timestamp.getTime(),
           type: from === 'SYSTEM' ? 'mint' : 'transfer',
           tokenIds: [...baseTokenIds, ...bonusTokenIds],
-          metadata: transaction.metadata
+          metadata: metadata
         };
 
         this.chain.push(chainTransaction);
