@@ -167,19 +167,23 @@ export async function verifyStripePayment(sessionId: string) {
     });
 
     if (result.status === 'already_processed') {
-      res.json({
+      return {
         success: true,
         status: 'processed',
         message: 'Payment was already processed',
         transaction: result.transaction
-      });
+      };
     } else {
-      res.json({
+      return {
         success: true,
         status: 'completed',
         message: 'Payment processed successfully',
-        transaction: result.transaction
-      });
+        transaction: result.transaction,
+        amount: parseInt(tokenAmount),
+        price: session.amount_total ? session.amount_total / 100 : undefined,
+        pricePerToken: parseFloat(pricePerToken || "1.00"),
+        bonusTokens: parseInt(bonusTokens || '0')
+      };
     }
 
   } catch (error: any) {
