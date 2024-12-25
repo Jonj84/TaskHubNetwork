@@ -14,7 +14,6 @@ import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Percent } from 'lucide-react';
 import { logErrorToServer } from '@/lib/errorLogging';
-import StripeCheckoutDialog from '@/components/StripeCheckoutDialog';
 
 interface PriceInfo {
   basePrice: number;
@@ -27,8 +26,6 @@ export default function TokenMarketplace() {
   const { toast } = useToast();
   const [tokenAmount, setTokenAmount] = useState<number>(100);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutUrl, setCheckoutUrl] = useState<string>();
   const [pricing, setPricing] = useState<PriceInfo>({
     basePrice: 0,
     discount: 0,
@@ -108,8 +105,34 @@ export default function TokenMarketplace() {
         throw new Error('No checkout URL received from server');
       }
 
-      setCheckoutUrl(checkoutUrl);
-      setCheckoutOpen(true);
+      // Open in a popup window
+      const popupWidth = 450;
+      const popupHeight = 650;
+      const left = (window.screen.width / 2) - (popupWidth / 2);
+      const top = (window.screen.height / 2) - (popupHeight / 2);
+
+      const popup = window.open(
+        checkoutUrl,
+        'Stripe Checkout',
+        `width=${popupWidth},height=${popupHeight},left=${left},top=${top},toolbar=0,location=0,menubar=0`
+      );
+
+      if (!popup) {
+        throw new Error('Popup was blocked. Please allow popups and try again.');
+      }
+
+      // Monitor popup status
+      const checkPopup = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(checkPopup);
+          setIsProcessing(false);
+        }
+      }, 500);
+
+      toast({
+        title: 'Checkout Started',
+        description: 'Please complete your purchase in the popup window',
+      });
 
     } catch (error: any) {
       console.error('[Token purchase failed] Error:', error);
@@ -254,11 +277,6 @@ export default function TokenMarketplace() {
           )}
         </CardContent>
       </Card>
-      <StripeCheckoutDialog
-        open={checkoutOpen}
-        onOpenChange={setCheckoutOpen}
-        checkoutUrl={checkoutUrl}
-      />
     </div>
   );
 }
