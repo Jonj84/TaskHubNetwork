@@ -11,6 +11,9 @@ interface ClientMetadata {
 // Store active connections with metadata
 const clients = new Map<WebSocket, ClientMetadata>();
 
+// Track upgrade requests to prevent duplicates
+const pendingUpgrades = new Set<string>();
+
 function heartbeat(this: WebSocket) {
   const metadata = clients.get(this);
   if (metadata) {
@@ -36,16 +39,23 @@ function cleanupClient(ws: WebSocket) {
 
 export function broadcast(type: string, data: any, filter?: (client: WebSocket) => boolean) {
   const message = JSON.stringify({ type, data });
+  let successCount = 0;
+  let failCount = 0;
+
   clients.forEach((metadata, client) => {
     if (client.readyState === WebSocket.OPEN && metadata.isAlive && (!filter || filter(client))) {
       try {
         client.send(message);
+        successCount++;
       } catch (error) {
         log(`[WebSocket] Failed to send message: ${error instanceof Error ? error.message : String(error)}`);
         cleanupClient(client);
+        failCount++;
       }
     }
   });
+
+  log(`[WebSocket] Broadcast complete: ${successCount} successful, ${failCount} failed`);
 }
 
 export function setupWebSocket(server: Server): WebSocketServer {
@@ -54,9 +64,24 @@ export function setupWebSocket(server: Server): WebSocketServer {
 
   // Handle upgrades
   server.on('upgrade', (request, socket, head) => {
+    if (!request.url) {
+      log('[WebSocket] Missing URL in upgrade request');
+      socket.destroy();
+      return;
+    }
+
     try {
+      // Generate unique identifier for this upgrade request
+      const requestId = `${request.headers['sec-websocket-key']}-${Date.now()}`;
+
+      // Skip if we're already handling this upgrade
+      if (pendingUpgrades.has(requestId)) {
+        log('[WebSocket] Duplicate upgrade request detected');
+        return;
+      }
+
       // Skip non-API WebSocket upgrades
-      if (!request.url?.startsWith('/api/')) {
+      if (!request.url.startsWith('/api/')) {
         log('[WebSocket] Non-API upgrade request, ignoring');
         return;
       }
@@ -68,8 +93,10 @@ export function setupWebSocket(server: Server): WebSocketServer {
       }
 
       log(`[WebSocket] Handling upgrade for: ${request.url}`);
+      pendingUpgrades.add(requestId);
 
       wss.handleUpgrade(request, socket, head, (ws) => {
+        pendingUpgrades.delete(requestId);
         wss.emit('connection', ws, request);
       });
     } catch (error) {
@@ -82,7 +109,13 @@ export function setupWebSocket(server: Server): WebSocketServer {
 
   // Set up connection monitoring
   const interval = setInterval(() => {
+    const now = Date.now();
     clients.forEach((metadata, ws) => {
+      // Clean up stale pending upgrades
+      if (now - metadata.lastPing > 60000) {
+        pendingUpgrades.clear();
+      }
+
       if (!metadata.isAlive) {
         log('[WebSocket] Terminating inactive connection');
         cleanupClient(ws);
@@ -176,6 +209,8 @@ export function setupWebSocket(server: Server): WebSocketServer {
   // Clean up on server close
   wss.on('close', () => {
     clearInterval(interval);
+    pendingUpgrades.clear();
+    clients.clear();
   });
 
   return wss;
