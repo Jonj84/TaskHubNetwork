@@ -11,6 +11,30 @@ export const users = pgTable("users", {
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const tokens = pgTable("tokens", {
+  id: text("id").primaryKey(), // Using UUID as token ID
+  creator: text("creator").notNull(),
+  owner: text("owner").notNull(),
+  mintedInBlock: text("minted_in_block").notNull(),
+  metadata: jsonb("metadata").$type<{
+    createdAt: Date;
+    previousTransfers: Array<{
+      id: string;
+      from: string;
+      to: string;
+      timestamp: number;
+      transactionId: string;
+    }>;
+    purchaseInfo?: {
+      paymentId?: string;
+      price?: number;
+      purchaseDate: Date;
+    };
+  }>(),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const tokenProcessingQueue = pgTable("token_processing_queue", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -60,6 +84,21 @@ export const tokenTransactions = pgTable("token_transactions", {
 export const usersRelations = relations(users, ({ many }) => ({
   transactions: many(tokenTransactions),
   processingQueue: many(tokenProcessingQueue),
+  ownedTokens: many(tokens, { relationName: "ownership" }),
+  createdTokens: many(tokens, { relationName: "creation" }),
+}));
+
+export const tokensRelations = relations(tokens, ({ one }) => ({
+  owner: one(users, {
+    fields: [tokens.owner],
+    references: [users.username],
+    relationName: "ownership",
+  }),
+  creator: one(users, {
+    fields: [tokens.creator],
+    references: [users.username],
+    relationName: "creation",
+  }),
 }));
 
 export const tokenProcessingQueueRelations = relations(tokenProcessingQueue, ({ one }) => ({
@@ -79,6 +118,8 @@ export const tokenTransactionsRelations = relations(tokenTransactions, ({ one })
 // Schemas for validation
 export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
+export const insertTokenSchema = createInsertSchema(tokens);
+export const selectTokenSchema = createSelectSchema(tokens);
 export const insertTokenTransactionSchema = createInsertSchema(tokenTransactions);
 export const selectTokenTransactionSchema = createSelectSchema(tokenTransactions);
 export const insertTokenProcessingQueueSchema = createInsertSchema(tokenProcessingQueue);
@@ -87,6 +128,8 @@ export const selectTokenProcessingQueueSchema = createSelectSchema(tokenProcessi
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type Token = typeof tokens.$inferSelect;
+export type InsertToken = typeof tokens.$inferInsert;
 export type TokenTransaction = typeof tokenTransactions.$inferSelect;
 export type InsertTokenTransaction = typeof tokenTransactions.$inferInsert;
 export type TokenProcessingQueue = typeof tokenProcessingQueue.$inferSelect;
