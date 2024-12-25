@@ -24,23 +24,23 @@ class Blockchain {
   async getBalance(address: string): Promise<number> {
     console.log('[Balance Check] Starting balance calculation for:', address);
     try {
-      // Count active tokens owned by the address
-      const result = await db
-        .select({
-          count: sql<number>`COUNT(*)`
-        })
-        .from(tokens)
-        .where(
-          and(
-            eq(tokens.owner, address),
-            eq(tokens.status, 'active')
-          )
-        );
+      // Count active tokens owned by the address with explicit casting
+      const result = await db.select({
+        balance: sql<number>`CAST(COUNT(*) AS INTEGER)`
+      })
+      .from(tokens)
+      .where(
+        and(
+          eq(tokens.owner, address),
+          eq(tokens.status, 'active')
+        )
+      );
 
-      const balance = Number(result[0].count);
-      console.log('[Balance Check] Result:', {
+      const balance = Number(result[0]?.balance || 0);
+      console.log('[Balance Check] Balance calculation result:', {
         address,
         calculatedBalance: balance,
+        query: 'SELECT COUNT(*) FROM tokens WHERE owner = $1 AND status = \'active\'',
         timestamp: new Date().toISOString()
       });
 
@@ -48,7 +48,7 @@ class Blockchain {
     } catch (error) {
       console.error('[Balance Check] Error calculating balance:', {
         address,
-        error,
+        error: error instanceof Error ? error.message : String(error),
         timestamp: new Date().toISOString()
       });
       throw error;
@@ -62,7 +62,7 @@ class Blockchain {
     bonusTokens?: number;
   }): Promise<TransactionResult> {
     try {
-      console.log('[Transaction Start] Creating transaction:', {
+      console.log('[Transaction] Starting new transaction:', {
         from,
         to,
         amount,
@@ -86,7 +86,7 @@ class Blockchain {
         }
       }
 
-      // Check if this payment was already processed
+      // Verify payment hasn't been processed
       if (metadata?.paymentId) {
         const existingTransaction = await db.query.tokenTransactions.findFirst({
           where: eq(tokenTransactions.paymentId, metadata.paymentId)
@@ -113,12 +113,6 @@ class Blockchain {
         const baseTokenIds = Array.from({ length: amount }, () => uuidv4());
         const bonusTokenIds = metadata?.bonusTokens ? Array.from({ length: metadata.bonusTokens }, () => uuidv4()) : [];
 
-        console.log('[Transaction] Creating tokens:', {
-          baseTokens: baseTokenIds.length,
-          bonusTokens: bonusTokenIds.length
-        });
-
-        // Prepare token records
         const tokensToCreate = [
           ...baseTokenIds.map(id => ({
             id,
@@ -188,6 +182,12 @@ class Blockchain {
 
         this.chain.push(chainTransaction);
 
+        console.log('[Transaction] Transaction completed successfully:', {
+          transactionId: transaction.id,
+          tokenCount: tokensToCreate.length,
+          timestamp: new Date().toISOString()
+        });
+
         return {
           id: transaction.id.toString(),
           tokenIds: [...baseTokenIds, ...bonusTokenIds],
@@ -195,7 +195,13 @@ class Blockchain {
         };
       });
     } catch (error) {
-      console.error('[Transaction Error]:', error);
+      console.error('[Transaction] Transaction failed:', {
+        error: error instanceof Error ? error.message : String(error),
+        from,
+        to,
+        amount,
+        timestamp: new Date().toISOString()
+      });
       throw error;
     }
   }
