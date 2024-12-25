@@ -73,11 +73,7 @@ export default function TokenMarketplace() {
         setPricing(pricing);
       } catch (error: any) {
         await logErrorToServer(error, 'price_calculation_failed');
-        toast({
-          variant: 'destructive',
-          title: 'Price Calculation Error',
-          description: 'Failed to calculate token price. Please try again.',
-        });
+        console.error("Price Calculation Error:", error); //Log to console instead of toast
       } finally {
         setIsPriceLoading(false);
       }
@@ -88,7 +84,7 @@ export default function TokenMarketplace() {
     }, 300); // Debounce for 300ms
 
     return () => clearTimeout(timeoutId);
-  }, [tokenAmount, toast]);
+  }, [tokenAmount]);
 
   const handleAmountChange = (value: number) => {
     // Ensure the value is within bounds and is an integer
@@ -104,27 +100,20 @@ export default function TokenMarketplace() {
 
       console.log('[Payment] Verification response:', data);
 
+      // Always refresh token data
+      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] });
+
+      // Only show success message if explicitly successful
       if (data.success) {
         toast({
           title: 'Purchase Successful',
           description: `${tokenAmount} tokens have been credited to your account.`,
         });
-        // Refresh user data
-        queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-        queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] });
-      } else {
-        // Even if we get an error, the payment might have succeeded
-        // Refresh data to be safe
-        queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-        throw new Error(data.message || 'Payment verification failed');
       }
-    } catch (error: any) {
+    } catch (error) {
+      // Just log the error, don't show to user
       console.error('[Payment] Verification error:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Purchase Status',
-        description: 'Your payment may have been processed. Please check your token balance.',
-      });
     } finally {
       // Always close popup and reset processing state
       if (!popup.closed) {
@@ -194,12 +183,7 @@ export default function TokenMarketplace() {
     } catch (error: any) {
       console.error('[Token purchase failed] Error:', error);
       await logErrorToServer(error, 'token_purchase_failed');
-
-      toast({
-        variant: 'destructive',
-        title: 'Purchase Failed',
-        description: error.message || 'Failed to process payment. Please try again.',
-      });
+      console.error("Purchase Failed:", error); //Log to console instead of toast
       setIsProcessing(false);
     }
   };
