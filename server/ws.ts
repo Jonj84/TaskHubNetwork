@@ -34,10 +34,11 @@ class WebSocketManager {
   constructor(server: Server) {
     try {
       log('[WebSocket] Initializing WebSocket server');
+
       wsServer = new WebSocketServer({ 
         noServer: true,
         clientTracking: true,
-        perMessageDeflate: false
+        perMessageDeflate: false // Disable compression for better stability
       });
 
       this.setupServer(server);
@@ -50,7 +51,7 @@ class WebSocketManager {
   }
 
   private setupServer(server: Server) {
-    server.on('upgrade', (request: Request, socket: any, head: Buffer) => {
+    server.on('upgrade', async (request: Request, socket: any, head: Buffer) => {
       try {
         // Skip Vite HMR connections
         if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
@@ -59,12 +60,19 @@ class WebSocketManager {
           return;
         }
 
-        const urlPath = new URL(
-          request.url || '', 
-          `http://${request.headers.host || 'localhost'}`
-        ).pathname;
-
-        log(`[WebSocket] Upgrade request for path: ${urlPath}`);
+        // Parse URL path properly
+        let urlPath: string;
+        try {
+          urlPath = new URL(
+            request.url || '', 
+            `http://${request.headers.host || 'localhost'}`
+          ).pathname;
+          log(`[WebSocket] Processing upgrade request for path: ${urlPath}`);
+        } catch (error) {
+          log(`[WebSocket] Invalid URL in upgrade request: ${request.url}`);
+          socket.destroy();
+          return;
+        }
 
         if (urlPath !== WebSocketManager.WS_PATH) {
           log('[WebSocket] Invalid WebSocket path:', urlPath);
@@ -81,7 +89,7 @@ class WebSocketManager {
 
         wsServer.handleUpgrade(request, socket, head, (ws) => {
           this.handleConnection(ws, userId).catch(error => {
-            log(`[WebSocket] Connection handler error: ${error.message}`);
+            log(`[WebSocket] Connection handler error: ${error instanceof Error ? error.message : String(error)}`);
             if (ws.readyState === WebSocket.OPEN) {
               ws.close(1011, 'Internal Server Error');
             }
@@ -126,8 +134,14 @@ class WebSocketManager {
     ws.on('message', (data: WebSocket.RawData) => this.handleMessage(sessionId, data));
     ws.on('close', () => this.handleClose(sessionId));
     ws.on('error', (error) => {
-      log(`[WebSocket] Error for connection ${sessionId}: ${error.message}`);
+      log(`[WebSocket] Error for connection ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
       this.handleClose(sessionId);
+    });
+
+    // Send initial connection success message
+    this.sendMessage(ws, {
+      type: 'connection_established',
+      data: { sessionId }
     });
 
     // Send initial balance for authenticated users
@@ -167,29 +181,9 @@ class WebSocketManager {
       }
 
       switch (message.type) {
-        case 'subscribe_balance':
-          if (connection.userId) {
-            balanceTracker.getBalance(connection.userId)
-              .then(balance => {
-                this.sendMessage(connection.ws, {
-                  type: 'balance_update',
-                  data: { balance, subscribed: true }
-                });
-              })
-              .catch(error => {
-                log(`[WebSocket] Balance subscription error: ${error.message}`);
-                this.sendMessage(connection.ws, {
-                  type: 'error',
-                  data: { message: 'Failed to fetch balance' }
-                });
-              });
-          }
-          break;
-
         case 'ping':
           this.sendMessage(connection.ws, { type: 'pong' });
           break;
-
         default:
           log(`[WebSocket] Unknown message type: ${message.type}`);
       }
@@ -233,19 +227,6 @@ class WebSocketManager {
     });
   }
 
-  public broadcastToUser(userId: string, type: string, data: any) {
-    log(`[WebSocket] Broadcasting to user ${userId}: ${type}`);
-    this.connections.forEach(connection => {
-      if (connection.userId === userId && connection.ws.readyState === WebSocket.OPEN) {
-        try {
-          this.sendMessage(connection.ws, { type, data });
-        } catch (error) {
-          log(`[WebSocket] Broadcast error: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-    });
-  }
-
   public cleanup() {
     clearInterval(this.pingInterval);
     this.connections.forEach(connection => {
@@ -258,6 +239,19 @@ class WebSocketManager {
       }
     });
     this.connections.clear();
+  }
+
+  public broadcastToUser(userId: string, type: string, data: any) {
+    log(`[WebSocket] Broadcasting to user ${userId}: ${type}`);
+    this.connections.forEach(connection => {
+      if (connection.userId === userId && connection.ws.readyState === WebSocket.OPEN) {
+        try {
+          this.sendMessage(connection.ws, { type, data });
+        } catch (error) {
+          log(`[WebSocket] Broadcast error: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    });
   }
 }
 

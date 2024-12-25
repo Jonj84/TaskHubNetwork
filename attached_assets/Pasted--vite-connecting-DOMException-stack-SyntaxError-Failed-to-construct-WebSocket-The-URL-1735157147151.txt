@@ -1,0 +1,61 @@
+[vite] connecting...
+DOMException {}
+stack: "SyntaxError: Failed to construct 'WebSocket': The URL 'wss://localhost:undefined/' is invalid.↵ at new t (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:218737)↵ at setupWebSocket (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@vite/client:535:19)↵ at fallback (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@vite/client:508:16)↵ at WebSocket.<anonymous> (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@vite/client:551:7)"
+get stack: ƒ ()
+set stack: ƒ ()
+length: 1
+name: ""
+[[Prototype]]: ƒ ()
+[[Prototype]]: DOMException
+
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 0}
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 0}
+[BlockchainService] Balance response: 
+Object {address: "jon", balance: 12364}
+[Blockchain] Balance fetched: 
+Object {username: "jon", balance: 12364}
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 12364}
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+[BlockchainService] Tokens fetched: 
+Object {username: "jon", count: 12364}
+[Blockchain] Tokens fetched: 
+Object {username: "jon", tokenCount: 12364}
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+[Payment] Initiating purchase for 2199 tokens
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+[Payment] Starting verification for session: cs_test_a1RJdgPuBSoo6ILdVqbJZoGYdJpALuAsRHzXaH9omIlWZbLJGATgDRSIYh
