@@ -142,32 +142,11 @@ export function registerRoutes(app: Express): Server {
             throw new Error('User not found');
           }
 
-          // Generate tokens through blockchain
-          const generatedTokens = [];
-          const tokenIds = [];
-
-          // Generate individual tokens with metadata
-          for (let i = 0; i < queueItem.amount; i++) {
-            const token = await blockchainService.generateToken({
-              creator: 'SYSTEM',
-              owner: user.username,
-              metadata: {
-                ...queueItem.metadata?.tokenSpecifications,
-                generationIndex: i + 1,
-                totalInBatch: queueItem.amount,
-                generatedAt: new Date().toISOString()
-              }
-            });
-            generatedTokens.push(token);
-            tokenIds.push(token.id);
-          }
-
-          // Create blockchain transaction for token transfer
+          // Create blockchain transaction which will generate tokens
           const blockchainTx = await blockchainService.createTransaction(
             'SYSTEM',
             user.username,
-            queueItem.amount,
-            tokenIds
+            queueItem.amount
           );
 
           // Update user's token balance
@@ -180,7 +159,7 @@ export function registerRoutes(app: Express): Server {
             .where(eq(users.id, user.id))
             .returning();
 
-          // Record the transaction with token IDs
+          // Record the transaction with blockchain data
           await db
             .insert(tokenTransactions)
             .values({
@@ -191,14 +170,11 @@ export function registerRoutes(app: Express): Server {
               paymentId: queueItem.paymentId,
               fromAddress: 'SYSTEM',
               toAddress: user.username,
-              blockHash: blockchainTx.hash,
-              tokenIds,
+              blockHash: blockchainTx.blockHash,
+              tokenIds: blockchainTx.tokenIds,
               metadata: {
                 ...queueItem.metadata,
-                tokens: generatedTokens.map(token => ({
-                  id: token.id,
-                  metadata: token.metadata
-                }))
+                blockchainTransaction: blockchainTx
               },
               timestamp: new Date()
             });
@@ -216,7 +192,7 @@ export function registerRoutes(app: Express): Server {
             queueId: queueItem.id,
             userId: user.id,
             amount: queueItem.amount,
-            tokenIds,
+            blockchainTx,
             newBalance: updatedUser.tokenBalance
           });
         } catch (error: any) {
