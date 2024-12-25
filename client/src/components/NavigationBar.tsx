@@ -36,26 +36,26 @@ export default function NavigationBar() {
         <NavigationMenu>
           <NavigationMenuList>
             <NavigationMenuItem>
-              <Link href="/">
-                <NavigationMenuLink className="font-bold">
+              <NavigationMenuLink asChild>
+                <Link href="/" className="font-bold">
                   Task Platform
-                </NavigationMenuLink>
-              </Link>
+                </Link>
+              </NavigationMenuLink>
             </NavigationMenuItem>
             <NavigationMenuItem>
-              <Link href="/tasks">
-                <NavigationMenuLink>Tasks</NavigationMenuLink>
-              </Link>
+              <NavigationMenuLink asChild>
+                <Link href="/tasks">Tasks</Link>
+              </NavigationMenuLink>
             </NavigationMenuItem>
             <NavigationMenuItem>
-              <Link href="/wallet">
-                <NavigationMenuLink>Wallet</NavigationMenuLink>
-              </Link>
+              <NavigationMenuLink asChild>
+                <Link href="/wallet">Wallet</Link>
+              </NavigationMenuLink>
             </NavigationMenuItem>
             <NavigationMenuItem>
-              <Link href="/explorer">
-                <NavigationMenuLink>Explorer</NavigationMenuLink>
-              </Link>
+              <NavigationMenuLink asChild>
+                <Link href="/explorer">Explorer</Link>
+              </NavigationMenuLink>
             </NavigationMenuItem>
           </NavigationMenuList>
         </NavigationMenu>
@@ -65,12 +65,12 @@ export default function NavigationBar() {
             <Coins className="h-4 w-4" />
             <span>{user?.tokenBalance || 0} tokens</span>
           </div>
-          <Link href="/marketplace">
-            <Button variant="default" className="gap-2">
+          <Button variant="default" asChild className="gap-2">
+            <Link href="/marketplace">
               <Coins className="h-4 w-4" />
               Purchase Tokens
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <span className="text-sm text-muted-foreground">{user?.username}</span>
           <Button variant="outline" onClick={handleLogout}>
             Logout

@@ -1,0 +1,51 @@
+Warning: validateDOMNesting(...): <a> cannot appear as a descendant of &lt;a&gt;.
+    at a
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-JVRV33CZ.js?v=46b8d0d2:41:13
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:52:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:33:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-JVRV33CZ.js?v=46b8d0d2:41:13
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:52:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:33:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-MSSVGQUS.js?v=46b8d0d2:109:15
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@radix-ui_react-navigation-menu.js?v=46b8d0d2:731:13
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@radix-ui_react-navigation-menu.js?v=46b8d0d2:409:13
+    at a
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=46b8d0d2:337:18
+    at li
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-JVRV33CZ.js?v=46b8d0d2:41:13
+    at Provider (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-HXYBJWYU.js?v=46b8d0d2:48:15)
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@radix-ui_react-navigation-menu.js?v=46b8d0d2:282:13
+    at ul
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-JVRV33CZ.js?v=46b8d0d2:41:13
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:52:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:33:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-JVRV33CZ.js?v=46b8d0d2:41:13
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:52:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:33:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-MSSVGQUS.js?v=46b8d0d2:98:15
+    at Provider (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-MSSVGQUS.js?v=46b8d0d2:28:15)
+    at CollectionProvider (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-MSSVGQUS.js?v=46b8d0d2:89:13)
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@radix-ui_react-navigation-menu.js?v=46b8d0d2:722:13
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:52:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-GWNN5Q73.js?v=46b8d0d2:33:11
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-MSSVGQUS.js?v=46b8d0d2:98:15
+    at div
+    at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-JVRV33CZ.js?v=46b8d0d2:41:13
+    at…
+WebSocket error: 
+Event {isTrusted: true}
+
+WebSocket connection closed
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 0}
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 0}
+[BlockchainService] Balance response: 
+Object {balance: 2750}
+[Blockchain] Balance fetched: 
+Object {username: "jon", balance: 2750}
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 2750}
