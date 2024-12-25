@@ -17,52 +17,84 @@ class Blockchain {
 
   private async initializeChain() {
     try {
-      // Get all token transactions from database
+      // Get all token transactions with their associated tokens
       const existingTransactions = await db.query.tokenTransactions.findMany({
+        with: {
+          tokens: true,
+          user: true
+        },
         orderBy: (tokenTransactions, { asc }) => [asc(tokenTransactions.timestamp)]
       });
 
-      // Convert to blockchain transactions
+      console.log('[Blockchain] Loading transactions:', {
+        count: existingTransactions.length,
+        timestamp: new Date().toISOString()
+      });
+
+      // Convert to blockchain transactions with detailed token info
       this.chain = existingTransactions.map(tx => ({
         id: tx.id.toString(),
-        from: tx.fromAddress,
-        to: tx.toAddress,
-        amount: tx.tokenIds.length,
+        from: tx.fromAddress || 'SYSTEM',
+        to: tx.toAddress || tx.user.username,
+        amount: tx.tokenIds?.length || 0,
         timestamp: tx.timestamp.getTime(),
         type: tx.type,
-        tokenIds: tx.tokenIds,
+        tokenIds: tx.tokenIds || [],
+        tokens: tx.tokens?.map(token => ({
+          id: token.id,
+          status: token.status,
+          metadata: token.metadata
+        })) || [],
         metadata: tx.metadata
       }));
 
-      console.log('[Blockchain] Initialized with existing transactions:', this.chain.length);
+      console.log('[Blockchain] Initialized with existing transactions:', {
+        count: this.chain.length,
+        timestamp: new Date().toISOString()
+      });
     } catch (error) {
       console.error('[Blockchain] Failed to initialize chain:', error);
+      throw error;
+    }
+  }
+
+  async getTokens(username: string): Promise<Token[]> {
+    try {
+      console.log('[Blockchain] Fetching tokens for user:', username);
+      const userTokens = await db.query.tokens.findMany({
+        where: and(
+          eq(tokens.owner, username),
+          eq(tokens.status, 'active')
+        ),
+        with: {
+          transaction: true
+        }
+      });
+
+      console.log('[Blockchain] Found tokens:', {
+        username,
+        tokenCount: userTokens.length,
+        timestamp: new Date().toISOString()
+      });
+
+      return userTokens.map(token => ({
+        id: token.id,
+        status: token.status,
+        metadata: token.metadata,
+        creator: token.creator,
+        owner: token.owner,
+        transaction: token.transaction
+      }));
+    } catch (error) {
+      console.error('[Blockchain] Failed to fetch tokens:', error);
+      throw error;
     }
   }
 
   async getBalance(address: string): Promise<number> {
     console.log('[Balance] Starting balance calculation for:', address);
     try {
-      // First verify the tokens table has records
-      const tokenCountQuery = await db.execute(
-        sql`SELECT COUNT(*) as total FROM tokens`
-      );
-      console.log('[Balance] Total tokens in system:', tokenCountQuery.rows[0]);
-
       // Get detailed token status for address
-      const tokenStatusQuery = await db.execute(
-        sql`SELECT status, COUNT(*) as count 
-            FROM tokens 
-            WHERE owner = ${address} 
-            GROUP BY status`
-      );
-      console.log('[Balance] Token status for address:', {
-        address,
-        statusBreakdown: tokenStatusQuery.rows,
-        timestamp: new Date().toISOString()
-      });
-
-      // Calculate active tokens
       const result = await db
         .select({
           activeTokens: sql<number>`COUNT(*)`
@@ -160,8 +192,8 @@ class Blockchain {
 
         // Generate token IDs
         const baseTokenIds = Array.from({ length: amount }, () => uuidv4());
-        const bonusTokenIds = metadata?.bonusTokens 
-          ? Array.from({ length: metadata.bonusTokens }, () => uuidv4()) 
+        const bonusTokenIds = metadata?.bonusTokens
+          ? Array.from({ length: metadata.bonusTokens }, () => uuidv4())
           : [];
 
         console.log('[Transaction] Creating tokens:', {
@@ -251,6 +283,7 @@ class Blockchain {
           timestamp: Date.now(),
           type: from === 'SYSTEM' ? 'mint' : 'transfer',
           tokenIds: [...baseTokenIds, ...bonusTokenIds],
+          tokens: tokensToCreate, // Add tokens to chainTransaction
           metadata: metadata
         };
 
@@ -302,5 +335,6 @@ export const blockchainService = {
   createTransaction: blockchain.createTransaction.bind(blockchain),
   getAllTransactions: blockchain.getAllTransactions.bind(blockchain),
   getPendingTransactions: blockchain.getPendingTransactions.bind(blockchain),
-  getBalance: blockchain.getBalance.bind(blockchain)
+  getBalance: blockchain.getBalance.bind(blockchain),
+  getTokens: blockchain.getTokens.bind(blockchain)
 };

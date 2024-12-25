@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Transaction } from '../lib/blockchain/types';
+import { Transaction, Token } from '../lib/blockchain/types';
 import { blockchainService } from '../lib/blockchain/BlockchainService';
 import { useToast } from './use-toast';
 import { useUser } from './use-user';
@@ -19,6 +19,26 @@ export function useBlockchain() {
     queryKey: ['/api/blockchain/pending'],
     queryFn: () => blockchainService.getPendingTransactions(),
     staleTime: 5000, // Consider data fresh for 5 seconds
+  });
+
+  const { data: tokens = [], isLoading: tokensLoading } = useQuery<Token[]>({
+    queryKey: ['/api/blockchain/tokens', user?.username],
+    queryFn: async () => {
+      if (!user?.username) return [];
+      try {
+        const tokens = await blockchainService.getTokens(user.username);
+        console.log('[Blockchain] Tokens fetched:', { 
+          username: user.username, 
+          tokenCount: tokens.length 
+        });
+        return tokens;
+      } catch (error) {
+        console.error('[Blockchain] Tokens fetch error:', error);
+        return [];
+      }
+    },
+    enabled: !!user?.username,
+    staleTime: 5000,
   });
 
   const { data: balance = 0, isLoading: balanceLoading } = useQuery<number>({
@@ -60,6 +80,7 @@ export function useBlockchain() {
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain/transactions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain/pending'] });
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain/balance'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/blockchain/tokens'] });
       toast({
         title: 'Success',
         description: 'Transaction created successfully',
@@ -70,8 +91,9 @@ export function useBlockchain() {
   return {
     transactions,
     pendingTransactions,
+    tokens,
     balance,
-    isLoading: transactionsLoading || balanceLoading,
+    isLoading: transactionsLoading || balanceLoading || tokensLoading,
     createTransaction: createTransactionMutation.mutateAsync,
   };
 }

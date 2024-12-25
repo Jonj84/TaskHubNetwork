@@ -33,13 +33,14 @@ export const tokens = pgTable("tokens", {
     }>;
     purchaseInfo?: {
       paymentId?: string;
-      price: number; // Make price required
+      price: number;
       purchaseDate: Date;
       reason?: 'purchase' | 'bonus';
     };
   }>(),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
+  transactionId: integer("transaction_id").references(() => tokenTransactions.id),
 });
 
 export const tokenTransactions = pgTable("token_transactions", {
@@ -84,13 +85,18 @@ export const tokensRelations = relations(tokens, ({ one }) => ({
     references: [users.username],
     relationName: "creation",
   }),
+  transaction: one(tokenTransactions, {
+    fields: [tokens.transactionId],
+    references: [tokenTransactions.id],
+  }),
 }));
 
-export const tokenTransactionsRelations = relations(tokenTransactions, ({ one }) => ({
+export const tokenTransactionsRelations = relations(tokenTransactions, ({ one, many }) => ({
   user: one(users, {
     fields: [tokenTransactions.userId],
     references: [users.id],
   }),
+  tokens: many(tokens),
 }));
 
 // Schemas for validation
