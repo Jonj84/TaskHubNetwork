@@ -3,6 +3,8 @@ import { type Server } from "http";
 import { log } from "./vite";
 import type { Request } from "express";
 import { balanceTracker } from './services/balanceTracker';
+import { parse } from 'cookie';
+import type { Session } from 'express-session';
 
 // WebSocket connection states
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -13,6 +15,13 @@ interface ClientConnection {
   lastPing: number;
   isAlive: boolean;
   connectionAttempts: number;
+  sessionId?: string;
+}
+
+declare module 'express-session' {
+  interface SessionData {
+    userId?: string;
+  }
 }
 
 class WebSocketManager {
@@ -31,8 +40,7 @@ class WebSocketManager {
   }
 
   private setupServer(server: Server) {
-    // Handle upgrade requests
-    server.on('upgrade', (request, socket, head) => {
+    server.on('upgrade', async (request: Request, socket, head) => {
       try {
         // Skip Vite HMR connections
         if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
@@ -41,14 +49,29 @@ class WebSocketManager {
         }
 
         // Only handle API websocket connections
-        // Allow both /api/ws and /ws paths for compatibility
-        if (!request.url?.startsWith('/api/ws') && !request.url?.startsWith('/ws')) {
-          log('[WebSocket] Ignoring non-API websocket connection');
+        if (!request.url?.match(/^\/(api\/)?ws/)) {
+          socket.destroy();
+          return;
+        }
+
+        // Get session from cookie
+        const cookieHeader = request.headers.cookie;
+        if (!cookieHeader) {
+          log('[WebSocket] No cookie found');
+          socket.destroy();
+          return;
+        }
+
+        const cookies = parse(cookieHeader);
+        const sessionId = cookies['connect.sid'];
+        if (!sessionId) {
+          log('[WebSocket] No session ID found');
+          socket.destroy();
           return;
         }
 
         this.wss.handleUpgrade(request, socket, head, (ws) => {
-          this.wss.emit('connection', ws, request);
+          this.wss.emit('connection', ws, request, sessionId);
         });
       } catch (error) {
         log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
@@ -56,10 +79,11 @@ class WebSocketManager {
       }
     });
 
-    this.wss.on('connection', this.handleConnection.bind(this));
+    this.wss.on('connection', (ws: WebSocket, request: Request, sessionId: string) => 
+      this.handleConnection(ws, request, sessionId));
   }
 
-  private handleConnection(ws: WebSocket, request: Request) {
+  private async handleConnection(ws: WebSocket, request: Request, sessionId: string) {
     const connectionId = Math.random().toString(36).substring(2);
     const userId = (request as any).session?.userId;
 
@@ -68,6 +92,7 @@ class WebSocketManager {
     this.connections.set(connectionId, {
       ws,
       userId,
+      sessionId,
       lastPing: Date.now(),
       isAlive: true,
       connectionAttempts: 0
@@ -86,7 +111,7 @@ class WebSocketManager {
 
     // If authenticated, send initial balance
     if (userId) {
-      this.sendInitialBalance(ws, userId);
+      await this.sendInitialBalance(ws, userId);
     }
   }
 
@@ -159,11 +184,8 @@ class WebSocketManager {
     const connection = this.connections.get(connectionId);
     if (connection) {
       log(`[WebSocket] Connection error for ${connectionId}: ${error.message}`);
-
-      // Increment connection attempts
       connection.connectionAttempts++;
 
-      // If max attempts reached, close connection
       if (connection.connectionAttempts >= WebSocketManager.MAX_RECONNECT_ATTEMPTS) {
         log(`[WebSocket] Max reconnection attempts reached for ${connectionId}`);
         this.connections.delete(connectionId);
