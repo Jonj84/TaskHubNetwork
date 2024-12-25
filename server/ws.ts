@@ -101,16 +101,17 @@ export async function notifyBalanceUpdate(userId: string, newBalance: number) {
     data: { userId, balance: newBalance }
   });
 
-  for (const client of subscribers) {
+  // Convert Set to Array before iteration
+  Array.from(subscribers).forEach(async (client) => {
     try {
       if (client.readyState === WebSocket.OPEN) {
         client.send(message);
       }
     } catch (error) {
       log(`[WebSocket] Failed to send balance update: ${error instanceof Error ? error.message : String(error)}`);
-      cleanupClient(client);
+      await cleanupClient(client);
     }
-  }
+  });
 }
 
 export function setupWebSocket(server: Server, options: WebSocketOptions = {}): WebSocketServer {
@@ -128,6 +129,7 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
 
       if (pendingUpgrades.has(requestId)) {
         log('[WebSocket] Duplicate upgrade request detected');
+        socket.destroy();
         return;
       }
 
@@ -148,21 +150,34 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
       }
 
       const queueKey = `${request.socket.remoteAddress}-${request.url}`;
-      if (connectionQueue.has(queueKey)) {
+      const existingPromise = connectionQueue.get(queueKey);
+
+      if (existingPromise) {
         log('[WebSocket] Connection already in progress, queuing');
-        await connectionQueue.get(queueKey);
+        await existingPromise;
         return;
       }
 
-      const connectionPromise = new Promise<void>((resolve) => {
-        pendingUpgrades.add(requestId);
+      const connectionPromise = new Promise<void>((resolve, reject) => {
+        try {
+          pendingUpgrades.add(requestId);
 
-        wss.handleUpgrade(request, socket, head, (ws) => {
-          pendingUpgrades.delete(requestId);
-          connectionQueue.delete(queueKey);
-          wss.emit('connection', ws, request);
-          resolve();
-        });
+          const timeout = setTimeout(() => {
+            reject(new Error('Connection timeout'));
+            pendingUpgrades.delete(requestId);
+            connectionQueue.delete(queueKey);
+          }, 10000);
+
+          wss.handleUpgrade(request, socket, head, (ws) => {
+            clearTimeout(timeout);
+            pendingUpgrades.delete(requestId);
+            connectionQueue.delete(queueKey);
+            wss.emit('connection', ws, request);
+            resolve();
+          });
+        } catch (error) {
+          reject(error);
+        }
       });
 
       connectionQueue.set(queueKey, connectionPromise);
@@ -214,11 +229,9 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
 
       log(`[WebSocket] New client connected to: ${pathname}`);
 
-      // Set up heartbeat
       ws.on('ping', heartbeat);
       ws.on('pong', heartbeat);
 
-      // Handle messages
       ws.on('message', async (data) => {
         try {
           const message = JSON.parse(data.toString());
@@ -226,14 +239,12 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
 
           if (!metadata) return;
 
-          // Handle ping messages
           if (message.type === 'ping') {
             ws.send(JSON.stringify({ type: 'pong' }));
             heartbeat.call(ws);
             return;
           }
 
-          // Handle balance subscription
           if (message.type === 'subscribe_balance' && metadata.userId) {
             let subscribers = balanceSubscriptions.get(metadata.userId);
             if (!subscribers) {
@@ -242,7 +253,6 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
             }
             subscribers.add(ws);
 
-            // Send initial balance
             try {
               const balance = await balanceTracker.getBalance(metadata.userId);
               ws.send(JSON.stringify({
@@ -257,7 +267,6 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
           metadata.lastPing = Date.now();
           metadata.state = 'connected';
 
-          // Broadcast to subscribers
           broadcast(message.type, message.data, (client) => {
             const clientData = clients.get(client);
             return clientData?.subscriptions.has(pathname) || false;
@@ -278,13 +287,11 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
         cleanupClient(ws);
       });
 
-      // Mark as fully connected
       const metadata = clients.get(ws);
       if (metadata) {
         metadata.state = 'connected';
       }
 
-      // Send connection confirmation
       ws.send(JSON.stringify({
         type: 'connected',
         data: {
