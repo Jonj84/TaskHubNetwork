@@ -132,6 +132,12 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
         return;
       }
 
+      // Prevent duplicate upgrade handling
+      if (socket.destroyed) {
+        return;
+      }
+
+      socket.removeAllListeners();  // Clean up any existing listeners
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });
