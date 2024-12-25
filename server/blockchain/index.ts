@@ -5,8 +5,7 @@ import { createHash } from 'crypto';
 class Block {
   public hash: string;
   public nonce: number;
-  private miningReward: number;
-  public tokens: Map<string, Token>;
+  private tokens: Map<string, Token>;
 
   constructor(
     public timestamp: number,
@@ -15,7 +14,6 @@ class Block {
     public difficulty: number = 4
   ) {
     this.nonce = 0;
-    this.miningReward = 1;
     this.tokens = new Map<string, Token>();
     this.hash = this.calculateHash();
   }
@@ -70,6 +68,10 @@ class Block {
 
     console.log('Block mined!', { hash: this.hash.substring(0, 10) });
   }
+
+  getTokens(): Map<string, Token> {
+    return this.tokens;
+  }
 }
 
 class Blockchain {
@@ -85,14 +87,19 @@ class Blockchain {
     this.pendingTransactions = [];
     this.tokenRegistry = new Map<string, Token>();
     this.maxSupply = 1000000;
-    this.chain.push(this.createGenesisBlock());
+    this.createGenesisBlock();
   }
 
-  private createGenesisBlock(): Block {
+  private createGenesisBlock(): void {
     const genesisBlock = new Block(Date.now(), [], '0');
-    // No tokens or transactions in genesis block
     genesisBlock.mineBlock('GENESIS');
-    return genesisBlock;
+    this.chain.push(genesisBlock);
+
+    // Add genesis block tokens to registry
+    const genesisTokens = genesisBlock.getTokens();
+    genesisTokens.forEach((token, id) => {
+      this.tokenRegistry.set(id, token);
+    });
   }
 
   createTransaction(from: string, to: string, amount: number): TransactionResult {
@@ -186,13 +193,15 @@ class Blockchain {
     );
 
     block.mineBlock(minerAddress);
-    this.chain.push(block);
-    this.pendingTransactions = [];
 
     // Add new tokens to global registry
-    block.tokens.forEach((token, id) => {
+    const blockTokens = block.getTokens();
+    blockTokens.forEach((token, id) => {
       this.tokenRegistry.set(id, token);
     });
+
+    this.chain.push(block);
+    this.pendingTransactions = [];
 
     return block;
   }

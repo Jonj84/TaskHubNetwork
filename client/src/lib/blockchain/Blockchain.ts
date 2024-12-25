@@ -10,15 +10,15 @@ export class Blockchain {
   private readonly maxSupply: number;
 
   constructor() {
+    this.chain = [];
     this.difficulty = 4;
     this.pendingTransactions = [];
     this.tokenRegistry = new Map<string, Token>();
     this.maxSupply = 1000000; // Maximum token supply
-    this.chain = []; // Initialize empty chain
-    this.chain.push(this.createGenesisBlock()); // Add genesis block after initialization
+    this.createGenesisBlock(); // Initialize genesis block
   }
 
-  private createGenesisBlock(): Block {
+  private createGenesisBlock(): void {
     const genesisBlock = new Block(Date.now(), [], "0");
     const genesisTokenId = uuidv4();
 
@@ -39,7 +39,7 @@ export class Blockchain {
     genesisBlock.addToken(genesisTokenId, 'GENESIS');
     genesisBlock.mineBlock();
 
-    return genesisBlock;
+    this.chain.push(genesisBlock);
   }
 
   getLatestBlock(): Block {

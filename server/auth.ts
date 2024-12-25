@@ -124,7 +124,7 @@ export function setupAuth(app: Express) {
         .values({
           username,
           password: hashedPassword,
-          tokenBalance: 10, // Start with 10 free tokens
+          tokenBalance: 0, // Start with 0 tokens instead of 10
         })
         .returning();
 
