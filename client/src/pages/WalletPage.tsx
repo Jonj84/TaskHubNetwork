@@ -95,7 +95,7 @@ export default function WalletPage() {
   }, [user, amount, recipient, createTransaction]);
 
   const { purchases, mining } = groupTransactions();
-  const displayBalance = Number(balance?.balance || 0);
+  const displayBalance = balance || 0;
 
   return (
     <div className="container mx-auto py-8 px-4">
