@@ -99,6 +99,55 @@ export function registerRoutes(app: Express): Server {
 
   app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
+  app.get('/api/tokens/verify-payment', async (req: AuthRequest, res: Response) => {
+    try {
+      console.log('[API] Verifying payment for session:', req.query.session_id);
+
+      if (!req.user) {
+        return res.status(401).json({ 
+          success: false,
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const result = await verifyStripePayment(req.query.session_id as string);
+
+      // Set proper content type
+      res.setHeader('Content-Type', 'application/json');
+
+      if (result.success) {
+        // Force sync user's balance
+        await balanceTracker.forceSyncBalance(req.user.username);
+        res.json({ 
+          success: true,
+          message: 'Payment verified and tokens created successfully',
+          transaction: result.transaction
+        });
+      } else {
+        res.json({
+          success: false,
+          message: result.message || 'Payment verification pending',
+          code: result.code || 'VERIFICATION_PENDING'
+        });
+      }
+    } catch (error: any) {
+      console.error('[API] Payment verification error:', {
+        sessionId: req.query.session_id,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      // Set proper content type even for errors
+      res.setHeader('Content-Type', 'application/json');
+      res.json({
+        success: false,
+        message: 'Payment verification in progress',
+        code: 'VERIFICATION_IN_PROGRESS'
+      });
+    }
+  });
+
   app.get('/api/payment/verify/:sessionId', async (req: AuthRequest, res: Response) => {
     try {
       console.log('[API] Verifying payment for session:', req.params.sessionId);

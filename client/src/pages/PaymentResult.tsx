@@ -16,73 +16,80 @@ export default function PaymentResult() {
 
   useEffect(() => {
     const verifyPayment = async () => {
-      if (isSuccess && sessionId) {
-        console.log('Starting payment verification:', { sessionId });
-        try {
-          const response = await fetch(`/api/tokens/verify-payment?session_id=${sessionId}`, {
+      if (!isSuccess || !sessionId) {
+        return;
+      }
+
+      console.log('[Payment] Starting verification:', { sessionId });
+
+      try {
+        const response = await fetch(
+          `/api/tokens/verify-payment?session_id=${sessionId}`,
+          {
+            method: 'GET',
             credentials: 'include',
             headers: {
-              'Accept': 'application/json'
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
             }
-          });
-
-          console.log('Verification response received:', {
-            status: response.status,
-            ok: response.ok
-          });
-
-          const contentType = response.headers.get('content-type');
-          if (!contentType?.includes('application/json')) {
-            console.error('Invalid response type:', contentType);
-            throw new Error('Invalid server response');
           }
+        );
 
-          const data = await response.json();
-          console.log('Payment verified successfully:', data);
+        const data = await response.json();
+        console.log('[Payment] Verification response:', data);
 
-          // Refresh token balance and history
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['/api/user'] }),
-            queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] })
-          ]);
+        // Always refresh token data regardless of response
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['/api/user'] }),
+          queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] })
+        ]);
 
-          // If this window is a popup, notify parent and close
-          if (window.opener) {
-            try {
-              window.opener.postMessage({ 
-                type: 'PAYMENT_COMPLETE', 
-                success: true,
-                data
-              }, '*');
-              window.close();
-            } catch (error) {
-              console.error('Failed to communicate with parent window:', error);
-            }
-          } else {
-            // If not a popup, show toast and redirect
-            toast({
-              title: 'Payment Successful',
-              description: `Successfully purchased ${data.tokenAmount} tokens! Your new balance is ${data.newBalance} tokens.`,
-            });
+        // If this window is a popup, close it
+        if (window.opener) {
+          window.opener.postMessage({ 
+            type: 'PAYMENT_COMPLETE', 
+            success: data.success,
+            data
+          }, '*');
+          window.close();
+          return;
+        }
 
-            setTimeout(() => {
-              setLocation('/marketplace');
-            }, 2000);
-          }
-
-        } catch (error: any) {
-          await logErrorToServer(error, 'payment_verification_failed');
-          console.error('Payment verification failed:', {
-            error,
-            sessionId,
-            message: error.message
-          });
+        // Only show success message if explicitly successful
+        if (data.success) {
           toast({
-            variant: 'destructive',
-            title: 'Verification Failed',
-            description: 'Could not verify your payment. Please contact support.',
+            title: 'Payment Successful',
+            description: 'Your tokens have been credited to your account.',
           });
         }
+
+        // Redirect after a short delay
+        setTimeout(() => {
+          setLocation('/marketplace');
+        }, 2000);
+
+      } catch (error) {
+        console.error('[Payment] Verification failed:', {
+          error,
+          sessionId
+        });
+
+        // Close popup even on error
+        if (window.opener) {
+          window.opener.postMessage({ 
+            type: 'PAYMENT_COMPLETE', 
+            success: false,
+            error: error instanceof Error ? error.message : 'Verification failed'
+          }, '*');
+          window.close();
+          return;
+        }
+
+        toast({
+          variant: 'destructive',
+          title: 'Verification Failed',
+          description: 'Could not verify your payment. Please contact support.',
+        });
       }
     };
 
@@ -96,9 +103,9 @@ export default function PaymentResult() {
           {isSuccess ? (
             <div className="space-y-4">
               <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto" />
-              <h1 className="text-2xl font-bold">Payment Successful!</h1>
+              <h1 className="text-2xl font-bold">Processing Payment</h1>
               <p className="text-muted-foreground">
-                Your tokens will be credited to your account shortly.
+                Please wait while we verify your payment...
               </p>
             </div>
           ) : (
