@@ -18,13 +18,9 @@ export function useWebSocket() {
 
   const getWebSocketUrl = useCallback(() => {
     try {
-      // Get the current URL from the window location
+      // Use the current window location to construct the WebSocket URL
       const currentLocation = window.location;
-
-      // Determine protocol (wss for https, ws for http)
       const wsProtocol = currentLocation.protocol === 'https:' ? 'wss:' : 'ws:';
-
-      // Use the exact hostname and port from the current location
       const wsUrl = `${wsProtocol}//${currentLocation.host}/api/ws`;
 
       console.log('[WebSocket] URL construction:', {
@@ -50,7 +46,7 @@ export function useWebSocket() {
       // Clean up any existing connection
       if (wsRef.current) {
         console.log('[WebSocket] Cleaning up existing connection');
-        wsRef.current.close();
+        wsRef.current.close(1000);
         wsRef.current = null;
       }
 
@@ -77,6 +73,11 @@ export function useWebSocket() {
         console.log('[WebSocket] Connected successfully');
         setStatus('connected');
         reconnectAttemptRef.current = 0;
+
+        // Send initial ping
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
       };
 
       ws.onmessage = (event) => {

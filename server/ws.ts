@@ -57,22 +57,25 @@ class WebSocketManager {
           return;
         }
 
-        // Parse URL path properly
+        // Ensure proper URL construction
+        const host = request.headers.host || request.hostname || '0.0.0.0';
+        const protocol = request.socket.encrypted ? 'wss' : 'ws';
+        const fullUrl = `${protocol}://${host}${request.url}`;
+
         let urlPath: string;
         try {
-          urlPath = new URL(
-            request.url || '', 
-            `http://${request.headers.host || '0.0.0.0'}`
-          ).pathname;
+          urlPath = new URL(fullUrl).pathname;
           log(`[WebSocket] Processing upgrade request for path: ${urlPath}`);
         } catch (error) {
-          log(`[WebSocket] Invalid URL in upgrade request: ${request.url}`);
+          log(`[WebSocket] Invalid URL in upgrade request: ${fullUrl}`);
+          socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
           socket.destroy();
           return;
         }
 
         if (urlPath !== WebSocketManager.WS_PATH) {
-          log('[WebSocket] Invalid WebSocket path:', urlPath);
+          log(`[WebSocket] Invalid WebSocket path: ${urlPath}`);
+          socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
           socket.destroy();
           return;
         }
@@ -94,6 +97,7 @@ class WebSocketManager {
         });
       } catch (error) {
         log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
+        socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
         socket.destroy();
       }
     });
