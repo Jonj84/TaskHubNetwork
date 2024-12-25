@@ -29,6 +29,41 @@ const STRIPE_PRODUCTS = {
   }
 };
 
+async function creditTokensToUser(userId: number, tokenAmount: number, paymentId: string) {
+  try {
+    await db.transaction(async (tx) => {
+      // Update user's token balance
+      await tx
+        .update(users)
+        .set({
+          tokenBalance: sql`token_balance + ${tokenAmount}`,
+        })
+        .where(eq(users.id, userId));
+
+      // Record the transaction
+      await tx.insert(tokenTransactions).values({
+        userId,
+        amount: tokenAmount,
+        type: 'purchase',
+        status: 'completed',
+        paymentId,
+        createdAt: new Date(),
+      });
+    });
+
+    console.log('Successfully credited tokens:', {
+      userId,
+      tokenAmount,
+      paymentId,
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Failed to credit tokens:', error);
+    throw error;
+  }
+}
+
 export async function createStripeSession(req: Request, res: Response) {
   try {
     const { amount } = req.body;
@@ -142,9 +177,16 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
 
     const { tokenAmount, userId } = session.metadata || {};
 
-    if (!tokenAmount) {
-      throw new Error('Missing token amount in session metadata');
+    if (!tokenAmount || !userId) {
+      throw new Error('Missing required metadata in session');
     }
+
+    // Credit tokens to user
+    await creditTokensToUser(
+      parseInt(userId, 10),
+      parseInt(tokenAmount, 10),
+      session.payment_intent as string
+    );
 
     // Return success response
     res.json({
@@ -182,7 +224,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
       const session = event.data.object as Stripe.Checkout.Session;
       const { tokenAmount, userId } = session.metadata || {};
 
-      if (!tokenAmount) {
+      if (!tokenAmount || !userId) {
         throw new Error("Missing metadata in Stripe session");
       }
 
@@ -192,8 +234,12 @@ export async function handleStripeWebhook(req: Request, res: Response) {
         sessionId: session.id
       });
 
-      // Credit tokens to user account will be implemented in the next step
-      // This ensures the transaction is recorded even if the success page isn't visited
+      // Credit tokens to user's account
+      await creditTokensToUser(
+        parseInt(userId, 10),
+        parseInt(tokenAmount, 10),
+        session.payment_intent as string
+      );
     }
 
     res.json({ received: true });

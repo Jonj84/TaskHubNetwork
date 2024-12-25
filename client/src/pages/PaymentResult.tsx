@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { queryClient } from '@/lib/queryClient';
+import { logErrorToServer } from '@/lib/errorLogging';
 
 export default function PaymentResult() {
   const [, setLocation] = useLocation();
@@ -22,7 +23,7 @@ export default function PaymentResult() {
           });
 
           if (!response.ok) {
-            throw new Error('Failed to verify payment');
+            throw new Error(await response.text());
           }
 
           const data = await response.json();
@@ -39,7 +40,8 @@ export default function PaymentResult() {
           setTimeout(() => {
             setLocation('/marketplace');
           }, 2000);
-        } catch (error) {
+        } catch (error: any) {
+          await logErrorToServer(error, 'payment_verification_failed');
           console.error('Payment verification failed:', error);
           toast({
             variant: 'destructive',
