@@ -17,9 +17,20 @@ class Blockchain {
   async getBalance(address: string): Promise<number> {
     console.log('[Balance] Starting balance calculation for:', address);
     try {
+      // Execute raw SQL query for debugging
+      const debugQuery = await db.execute(
+        sql`SELECT COUNT(*) as count, status FROM tokens WHERE owner = ${address} GROUP BY status`
+      );
+      console.log('[Balance] Debug query result:', {
+        address,
+        rawResults: debugQuery,
+        timestamp: new Date().toISOString()
+      });
+
+      // Perform the actual balance calculation
       const result = await db
         .select({
-          balance: sql<number>`COALESCE(COUNT(*), 0)`
+          activeTokens: sql<number>`COALESCE(COUNT(*), 0)`
         })
         .from(tokens)
         .where(
@@ -29,17 +40,18 @@ class Blockchain {
           )
         );
 
-      const balance = Number(result[0].balance);
-      console.log('[Balance] Current balance:', { 
-        address, 
+      const balance = Number(result[0]?.activeTokens || 0);
+      console.log('[Balance] Final calculation:', {
+        address,
         balance,
+        query: 'SELECT COUNT(*) FROM tokens WHERE owner = $1 AND status = \'active\'',
         timestamp: new Date().toISOString()
       });
 
       return balance;
     } catch (error) {
-      console.error('[Balance] Error calculating balance:', { 
-        address, 
+      console.error('[Balance] Error calculating balance:', {
+        address,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
@@ -48,12 +60,17 @@ class Blockchain {
     }
   }
 
-  async createTransaction(from: string, to: string, amount: number, metadata?: {
-    paymentId?: string;
-    price?: number;
-    pricePerToken?: number;
-    bonusTokens?: number;
-  }): Promise<TransactionResult> {
+  async createTransaction(
+    from: string,
+    to: string,
+    amount: number,
+    metadata?: {
+      paymentId?: string;
+      price?: number;
+      pricePerToken?: number;
+      bonusTokens?: number;
+    }
+  ): Promise<TransactionResult> {
     console.log('[Transaction] Starting new transaction:', {
       from,
       to,
@@ -106,7 +123,7 @@ class Blockchain {
           throw new Error(`Recipient user not found: ${to}`);
         }
 
-        // Generate token IDs with explicit typing
+        // Generate token IDs
         const baseTokenIds = Array.from({ length: amount }, () => uuidv4());
         const bonusTokenIds = metadata?.bonusTokens 
           ? Array.from({ length: metadata.bonusTokens }, () => uuidv4()) 
@@ -132,7 +149,8 @@ class Blockchain {
               purchaseInfo: metadata ? {
                 paymentId: metadata.paymentId,
                 price: metadata.pricePerToken || 1.00,
-                purchaseDate: new Date()
+                purchaseDate: new Date(),
+                reason: 'purchase' as const
               } : undefined
             }
           })),
@@ -146,10 +164,10 @@ class Blockchain {
               createdAt: new Date(),
               previousTransfers: [],
               purchaseInfo: {
-                reason: 'bonus',
-                originalPurchaseId: metadata?.paymentId,
+                paymentId: metadata?.paymentId,
                 price: 0,
-                purchaseDate: new Date()
+                purchaseDate: new Date(),
+                reason: 'bonus' as const
               }
             }
           }))
@@ -168,9 +186,10 @@ class Blockchain {
           toAddress: to,
           tokenIds: [...baseTokenIds, ...bonusTokenIds],
           metadata: {
-            ...metadata,
             baseTokens: amount,
             bonusTokens: metadata?.bonusTokens || 0,
+            pricePerToken: metadata?.pricePerToken,
+            totalPrice: metadata?.price,
             timestamp: new Date().toISOString()
           }
         }).returning();
@@ -202,7 +221,6 @@ class Blockchain {
           blockHash: 'immediate'
         };
       });
-
     } catch (error) {
       console.error('[Transaction] Failed:', {
         error: error instanceof Error ? error.message : String(error),
