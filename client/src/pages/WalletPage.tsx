@@ -54,6 +54,11 @@ export default function WalletPage() {
     }
   };
 
+  // Filter transactions for current user
+  const userTransactions = transactions.filter(tx => 
+    tx.from === user?.username || tx.to === user?.username
+  );
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       <div className="grid gap-4 md:grid-cols-2">
@@ -118,14 +123,14 @@ export default function WalletPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Transaction History</CardTitle>
+          <CardTitle>Blockchain Transaction History</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="flex justify-center items-center py-8">
               <LoadingSpinner size="lg" />
             </div>
-          ) : transactions.length === 0 ? (
+          ) : userTransactions.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No transactions yet
             </div>
@@ -140,14 +145,16 @@ export default function WalletPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transactions.map((tx, index) => (
+                {userTransactions.map((tx, index) => (
                   <TableRow key={index}>
                     <TableCell>
                       {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
                     </TableCell>
-                    <TableCell>{tx.from}</TableCell>
-                    <TableCell>{tx.to}</TableCell>
-                    <TableCell>{tx.amount}</TableCell>
+                    <TableCell>{tx.from === user?.username ? 'You' : tx.from}</TableCell>
+                    <TableCell>{tx.to === user?.username ? 'You' : tx.to}</TableCell>
+                    <TableCell className={tx.to === user?.username ? 'text-green-600' : 'text-red-600'}>
+                      {tx.to === user?.username ? '+' : '-'}{tx.amount}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

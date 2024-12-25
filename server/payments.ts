@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { db } from "@db";
 import { tokenTransactions, users } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
+import {blockchainService} from './blockchain'; // Assuming blockchain service is in a separate file
 
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error("STRIPE_SECRET_KEY must be set");
@@ -267,6 +268,15 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
 
       console.log('Updated user balance:', updatedUser);
 
+      // Create blockchain transaction
+      const blockchainTx = await blockchainService.createTransaction(
+        'SYSTEM', // From system address
+        updatedUser.username, // To user's address (using username as address)
+        parseInt(tokenAmount, 10)
+      );
+
+      console.log('Created blockchain transaction:', blockchainTx);
+
       // Record the transaction
       const [transaction] = await tx
         .insert(tokenTransactions)
@@ -285,7 +295,8 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       return {
         status: 'success',
         newBalance: updatedUser.newBalance,
-        transaction
+        transaction,
+        blockchainTx
       };
     });
 
@@ -296,7 +307,8 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       success: true,
       tokenAmount: parseInt(tokenAmount, 10),
       newBalance: result.newBalance,
-      paymentId: session.payment_intent
+      paymentId: session.payment_intent,
+      blockchainTxId: result.blockchainTx?.id
     });
 
   } catch (error: any) {
