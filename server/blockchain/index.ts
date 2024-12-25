@@ -17,6 +17,8 @@ class Blockchain {
 
   private async initializeChain() {
     try {
+      console.log('[Blockchain] Starting chain initialization');
+
       // Get all token transactions with their associated tokens
       const existingTransactions = await db.query.tokenTransactions.findMany({
         with: {
@@ -26,34 +28,46 @@ class Blockchain {
         orderBy: (tokenTransactions, { asc }) => [asc(tokenTransactions.timestamp)]
       });
 
-      console.log('[Blockchain] Loading transactions:', {
+      console.log('[Blockchain] Loaded transactions:', {
         count: existingTransactions.length,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        firstTransaction: existingTransactions[0]?.id || 'none',
+        lastTransaction: existingTransactions[existingTransactions.length - 1]?.id || 'none'
       });
 
-      // Convert to blockchain transactions with detailed token info
-      this.chain = existingTransactions.map(tx => ({
-        id: tx.id.toString(),
-        from: tx.fromAddress || 'SYSTEM',
-        to: tx.toAddress || tx.user.username,
-        amount: tx.tokenIds?.length || 0,
-        timestamp: tx.timestamp.getTime(),
-        type: tx.type,
-        tokenIds: tx.tokenIds || [],
-        tokens: tx.tokens?.map(token => ({
-          id: token.id,
-          status: token.status,
-          metadata: token.metadata
-        })) || [],
-        metadata: tx.metadata
-      }));
+      // Convert to blockchain transactions
+      this.chain = existingTransactions.map(tx => {
+        const transaction = {
+          id: tx.id.toString(),
+          from: tx.fromAddress || 'SYSTEM',
+          to: tx.toAddress || tx.user.username,
+          amount: tx.tokenIds?.length || 0,
+          timestamp: tx.timestamp.getTime(),
+          type: tx.type as 'transfer' | 'mint',
+          tokenIds: tx.tokenIds || [],
+          metadata: tx.metadata
+        };
 
-      console.log('[Blockchain] Initialized with existing transactions:', {
-        count: this.chain.length,
+        console.log('[Blockchain] Mapped transaction:', {
+          id: transaction.id,
+          from: transaction.from,
+          to: transaction.to,
+          amount: transaction.amount,
+          type: transaction.type
+        });
+
+        return transaction;
+      });
+
+      console.log('[Blockchain] Chain initialization complete:', {
+        totalTransactions: this.chain.length,
         timestamp: new Date().toISOString()
       });
     } catch (error) {
-      console.error('[Blockchain] Failed to initialize chain:', error);
+      console.error('[Blockchain] Failed to initialize chain:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       throw error;
     }
   }
@@ -71,22 +85,39 @@ class Blockchain {
         }
       });
 
-      console.log('[Blockchain] Found tokens:', {
+      console.log('[Blockchain] Token query result:', {
         username,
         tokenCount: userTokens.length,
+        activeTokens: userTokens.filter(t => t.status === 'active').length,
         timestamp: new Date().toISOString()
       });
 
-      return userTokens.map(token => ({
+      const mappedTokens = userTokens.map(token => ({
         id: token.id,
         status: token.status,
-        metadata: token.metadata,
+        metadata: token.metadata || {
+          createdAt: token.created_at,
+          previousTransfers: []
+        },
         creator: token.creator,
         owner: token.owner,
-        transaction: token.transaction
+        mintedInBlock: token.mintedInBlock,
+        transactionId: token.transactionId
       }));
+
+      console.log('[Blockchain] Mapped tokens:', {
+        username,
+        mappedCount: mappedTokens.length,
+        sampleToken: mappedTokens[0]?.id || 'none'
+      });
+
+      return mappedTokens;
     } catch (error) {
-      console.error('[Blockchain] Failed to fetch tokens:', error);
+      console.error('[Blockchain] Failed to fetch tokens:', {
+        username,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       throw error;
     }
   }
