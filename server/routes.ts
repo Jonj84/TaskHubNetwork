@@ -9,6 +9,7 @@ import { blockchainService } from './blockchain';
 import { balanceTracker } from './services/balanceTracker';
 import { createStripeSession, handleStripeWebhook, verifyStripePayment } from './payments';
 import type { Request, Response, NextFunction } from "express";
+import { computationalTaskAgent } from './services/ComputationalTaskAgent';
 
 // Auth request type
 interface AuthRequest extends Request {
@@ -639,5 +640,177 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add computational task endpoints
+  app.post('/api/tasks/:taskId/distribute', async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const taskId = parseInt(req.params.taskId);
+      if (isNaN(taskId)) {
+        return res.status(400).json({
+          message: 'Invalid task ID',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      // Get the task and verify ownership
+      const [task] = await db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .limit(1);
+
+      if (!task) {
+        return res.status(404).json({
+          message: 'Task not found',
+          code: 'TASK_NOT_FOUND'
+        });
+      }
+
+      if (task.creatorId !== req.user.id) {
+        return res.status(403).json({
+          message: 'Only task creator can distribute work',
+          code: 'UNAUTHORIZED'
+        });
+      }
+
+      const success = await computationalTaskAgent.distributeWork(taskId);
+      if (!success) {
+        return res.status(400).json({
+          message: 'Failed to distribute work units',
+          code: 'DISTRIBUTION_FAILED'
+        });
+      }
+
+      res.json({ message: 'Work units distributed successfully' });
+    } catch (error: any) {
+      console.error('[API] Work distribution failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to distribute work units',
+        code: 'DISTRIBUTION_ERROR'
+      });
+    }
+  });
+
+  app.post('/api/tasks/:taskId/claim', async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const taskId = parseInt(req.params.taskId);
+      const { tokenId } = req.body;
+
+      if (isNaN(taskId) || !tokenId) {
+        return res.status(400).json({
+          message: 'Invalid parameters',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      const workUnit = await computationalTaskAgent.claimWorkUnit(
+        taskId,
+        tokenId,
+        req.user.id
+      );
+
+      if (!workUnit) {
+        return res.status(400).json({
+          message: 'No available work units for this token',
+          code: 'NO_WORK_AVAILABLE'
+        });
+      }
+
+      res.json(workUnit);
+    } catch (error: any) {
+      console.error('[API] Work unit claim failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to claim work unit',
+        code: 'CLAIM_ERROR'
+      });
+    }
+  });
+
+  app.post('/api/tasks/:taskId/units/:unitId/submit', async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const taskId = parseInt(req.params.taskId);
+      const unitId = parseInt(req.params.unitId);
+      const { result } = req.body;
+
+      if (isNaN(taskId) || isNaN(unitId) || !result) {
+        return res.status(400).json({
+          message: 'Invalid parameters',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      const success = await computationalTaskAgent.submitWorkResult(
+        taskId,
+        unitId,
+        req.user.id,
+        result
+      );
+
+      if (!success) {
+        return res.status(400).json({
+          message: 'Failed to submit work result',
+          code: 'SUBMISSION_FAILED'
+        });
+      }
+
+      res.json({ message: 'Work result submitted successfully' });
+    } catch (error: any) {
+      console.error('[API] Work result submission failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to submit work result',
+        code: 'SUBMISSION_ERROR'
+      });
+    }
+  });
+
+  app.get('/api/tasks/:taskId/progress', async (req: Request, res: Response) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      if (isNaN(taskId)) {
+        return res.status(400).json({
+          message: 'Invalid task ID',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      const progress = await computationalTaskAgent.getTaskProgress(taskId);
+      if (!progress) {
+        return res.status(404).json({
+          message: 'Task progress not found',
+          code: 'PROGRESS_NOT_FOUND'
+        });
+      }
+
+      res.json(progress);
+    } catch (error: any) {
+      console.error('[API] Progress fetch failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to fetch progress',
+        code: 'PROGRESS_ERROR'
+      });
+    }
+  });
+
+  // Return the HTTP server
   return httpServer;
 }
