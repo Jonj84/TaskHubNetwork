@@ -14,6 +14,7 @@ import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Percent } from 'lucide-react';
 import { logErrorToServer } from '@/lib/errorLogging';
+import StripeCheckoutDialog from '@/components/StripeCheckoutDialog';
 
 interface PriceInfo {
   basePrice: number;
@@ -26,11 +27,13 @@ export default function TokenMarketplace() {
   const { toast } = useToast();
   const [tokenAmount, setTokenAmount] = useState<number>(100);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [pricing, setPricing] = useState<PriceInfo>({ 
-    basePrice: 0, 
-    discount: 0, 
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string>();
+  const [pricing, setPricing] = useState<PriceInfo>({
+    basePrice: 0,
+    discount: 0,
     finalPrice: 0,
-    tier: 'standard'
+    tier: 'standard',
   });
   const [isPriceLoading, setIsPriceLoading] = useState(false);
 
@@ -99,16 +102,14 @@ export default function TokenMarketplace() {
         throw new Error(errorText);
       }
 
-      const { checkoutUrl } = await response.json();
+      const { clientSecret } = await response.json();
 
-      if (!checkoutUrl) {
-        throw new Error('No checkout URL received from server');
+      if (!clientSecret) {
+        throw new Error('No client secret received from server');
       }
 
-      console.log('Redirecting to Stripe checkout:', checkoutUrl);
-
-      // Instead of opening in a new window, redirect in the same window
-      window.location.href = checkoutUrl;
+      setClientSecret(clientSecret);
+      setCheckoutOpen(true);
 
     } catch (error: any) {
       console.error('[Token purchase failed] Error:', error);
@@ -253,6 +254,12 @@ export default function TokenMarketplace() {
           )}
         </CardContent>
       </Card>
+      <StripeCheckoutDialog
+        open={checkoutOpen}
+        onOpenChange={setCheckoutOpen}
+        clientSecret={clientSecret}
+        amount={pricing.finalPrice * 100} //converting to cents
+      />
     </div>
   );
 }

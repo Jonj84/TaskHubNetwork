@@ -51,17 +51,15 @@ export async function createStripeSession(req: Request, res: Response) {
 
     const product = STRIPE_PRODUCTS[tier as keyof typeof STRIPE_PRODUCTS];
     const priceInCents = Math.round(amount * product.pricePerToken * 100);
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
 
     console.log('Creating Stripe session:', {
       amount,
       tier,
       priceInCents,
-      baseUrl,
       userId: (req as any).user?.id
     });
 
-    // Create Stripe checkout session
+    // Create Stripe checkout session with embedded mode
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: [
@@ -78,8 +76,8 @@ export async function createStripeSession(req: Request, res: Response) {
         },
       ],
       mode: "payment",
-      success_url: `${baseUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/payment/cancel`,
+      ui_mode: 'embedded',
+      return_url: `${req.protocol}://${req.get('host')}/payment/success`,
       metadata: {
         tokenAmount: amount.toString(),
         userId: (req as any).user?.id?.toString(),
@@ -89,14 +87,12 @@ export async function createStripeSession(req: Request, res: Response) {
 
     console.log('Stripe session created:', {
       sessionId: session.id,
-      url: session.url,
-      success_url: session.success_url,
-      cancel_url: session.cancel_url
+      clientSecret: session.client_secret
     });
 
-    // Return the checkout URL directly
+    // Return the client secret for embedded checkout
     res.json({ 
-      checkoutUrl: session.url,
+      clientSecret: session.client_secret,
       sessionId: session.id 
     });
   } catch (error: any) {
