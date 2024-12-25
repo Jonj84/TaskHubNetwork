@@ -48,7 +48,12 @@ class Blockchain {
     }
   }
 
-  async createTransaction(from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number; bonusTokens?: number }): Promise<TransactionResult> {
+  async createTransaction(from: string, to: string, amount: number, metadata?: { 
+    paymentId?: string; 
+    price?: number; 
+    pricePerToken?: number;
+    bonusTokens?: number 
+  }): Promise<TransactionResult> {
     console.log('[Transaction Start] Creating transaction:', { 
       from, 
       to, 
@@ -79,6 +84,21 @@ class Blockchain {
     }
 
     try {
+      // Check if this payment was already processed
+      if (metadata?.paymentId) {
+        const existingTransaction = await db.query.tokenTransactions.findFirst({
+          where: eq(tokenTransactions.paymentId, metadata.paymentId)
+        });
+
+        if (existingTransaction) {
+          console.log('[Transaction] Payment already processed:', {
+            paymentId: metadata.paymentId,
+            existingTransaction: existingTransaction.id
+          });
+          throw new Error('Payment already processed');
+        }
+      }
+
       // Create tokens and record transaction in a single database transaction
       const result = await db.transaction(async (tx) => {
         // Generate token IDs
@@ -100,7 +120,7 @@ class Blockchain {
             previousTransfers: [],
             purchaseInfo: metadata ? {
               paymentId: metadata.paymentId,
-              price: metadata.price,
+              price: metadata.pricePerToken || 1.00, // Store individual token price
               purchaseDate: new Date()
             } : undefined
           }
@@ -118,6 +138,7 @@ class Blockchain {
             purchaseInfo: {
               reason: 'volume_bonus',
               originalPurchaseId: metadata?.paymentId,
+              price: 0, // Bonus tokens are free
               purchaseDate: new Date()
             }
           }

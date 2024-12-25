@@ -32,7 +32,8 @@ function calculatePrice(amount: number) {
     bonusTokens,
     bonusPercentage,
     finalPrice: Math.round(basePrice * 100) / 100,
-    tier
+    tier,
+    pricePerToken: 1.00 // $1 per token
   };
 }
 
@@ -79,7 +80,8 @@ export async function createStripeSession(req: Request, res: Response) {
         username: (req as any).user?.username,
         tier: priceInfo.tier,
         bonusTokens: priceInfo.bonusTokens.toString(),
-        bonusPercentage: priceInfo.bonusPercentage.toString()
+        bonusPercentage: priceInfo.bonusPercentage.toString(),
+        pricePerToken: priceInfo.pricePerToken.toString()
       },
     });
 
@@ -120,7 +122,7 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       });
     }
 
-    const { tokenAmount, userId, username, bonusTokens } = session.metadata || {};
+    const { tokenAmount, userId, username, bonusTokens, pricePerToken } = session.metadata || {};
 
     if (!tokenAmount || !userId || !username) {
       console.error('Missing metadata:', {
@@ -144,7 +146,7 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
         };
       }
 
-      // Create blockchain transaction
+      // Create blockchain transaction with price per token
       const blockchainTx = await blockchainService.createTransaction(
         'SYSTEM',
         username,
@@ -152,6 +154,7 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
         {
           paymentId: session.payment_intent as string,
           price: session.amount_total ? session.amount_total / 100 : undefined,
+          pricePerToken: parseFloat(pricePerToken || "1.00"),
           bonusTokens: parseInt(bonusTokens || '0')
         }
       );
@@ -203,11 +206,16 @@ export async function handleStripeWebhook(req: Request, res: Response) {
       id: event.id
     });
 
+    // Only process checkout.session.completed events and respond immediately
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      await verifyStripePayment(session.id, res);
+      // Process payment asynchronously to prevent duplicate processing
+      verifyStripePayment(session.id, res).catch(error => {
+        console.error("Async payment verification failed:", error);
+      });
     }
 
+    // Always respond immediately to webhook
     res.json({ received: true });
   } catch (error: any) {
     console.error("Stripe webhook error:", error);
