@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useUser } from '../hooks/use-user';
 import { useBlockchain } from '../hooks/use-blockchain';
 import { Button } from '@/components/ui/button';
@@ -18,13 +18,7 @@ import { AlertTriangle, ArrowRightLeft, History } from "lucide-react";
 import { format } from 'date-fns';
 import { Transaction } from '../lib/blockchain/types';
 import { motion } from 'framer-motion';
-import { TokenBrowser } from '@/components/TokenBrowser';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { TokenBalanceCard } from '@/components/TokenBalanceCard';
 
 interface GroupedTransactions {
   purchases: Transaction[];
@@ -34,7 +28,7 @@ interface GroupedTransactions {
 export default function WalletPage() {
   // Hooks
   const { user } = useUser();
-  const { transactions = [], tokens = [], createTransaction, isLoading, balance } = useBlockchain();
+  const { transactions = [], createTransaction, isLoading, balance } = useBlockchain();
 
   // State
   const [amount, setAmount] = useState<number>(0);
@@ -102,24 +96,12 @@ export default function WalletPage() {
   }, [user, amount, recipient, createTransaction]);
 
   const { purchases, mining } = groupTransactions();
-  const displayBalance = balance || 0;
 
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Balance Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ArrowRightLeft className="h-5 w-5" />
-              Token Balance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{displayBalance}</p>
-            <p className="text-sm text-muted-foreground">Available tokens</p>
-          </CardContent>
-        </Card>
+        {/* Balance Card with Token Browser */}
+        <TokenBalanceCard />
 
         {/* Send Tokens Card */}
         <Card>
@@ -172,91 +154,78 @@ export default function WalletPage() {
         </Card>
       </div>
 
-      {/* Tabs for Transaction History and Token Browser */}
-      <Tabs defaultValue="transactions" className="mt-8">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="transactions">Transaction History</TabsTrigger>
-          <TabsTrigger value="tokens">Token Browser</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="transactions">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <History className="h-5 w-5" />
-                Transaction History
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <LoadingSpinner size="lg" />
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>From/To</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {[...purchases, ...mining]
-                      .sort((a, b) => b.timestamp - a.timestamp)
-                      .map((tx, index) => (
-                      <motion.tr
-                        key={tx.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.1 }}
-                        className="group border-b border-border hover:bg-muted/50"
-                      >
-                        <TableCell>
-                          {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
-                        </TableCell>
-                        <TableCell>
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
-                            ${tx.type === 'mint' ? 'bg-blue-100 text-blue-800' :
-                            tx.type === 'escrow' ? 'bg-yellow-100 text-yellow-800' :
-                            tx.type === 'release' ? 'bg-green-100 text-green-800' :
-                            'bg-gray-100 text-gray-800'}`}>
-                            {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {tx.to === user?.username ? 
-                            <span className="text-green-600">From: {tx.from}</span> :
-                            <span className="text-red-600">To: {tx.to}</span>
-                          }
-                        </TableCell>
-                        <TableCell className={`text-right font-medium ${
-                          tx.to === user?.username ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {tx.to === user?.username ? '+' : '-'}
-                          {tx.amount}
-                        </TableCell>
-                      </motion.tr>
-                    ))}
-                    {transactions.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                          No transactions found
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="tokens">
-          <TokenBrowser tokens={tokens} isLoading={isLoading} />
-        </TabsContent>
-      </Tabs>
+      {/* Transaction History */}
+      <Card className="mt-8">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Transaction History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>From/To</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...purchases, ...mining]
+                  .sort((a, b) => b.timestamp - a.timestamp)
+                  .map((tx, index) => (
+                  <motion.tr
+                    key={tx.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="group border-b border-border hover:bg-muted/50"
+                  >
+                    <TableCell>
+                      {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
+                        ${tx.type === 'mint' ? 'bg-blue-100 text-blue-800' :
+                        tx.type === 'escrow' ? 'bg-yellow-100 text-yellow-800' :
+                        tx.type === 'release' ? 'bg-green-100 text-green-800' :
+                        'bg-gray-100 text-gray-800'}`}>
+                        {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {tx.to === user?.username ? 
+                        <span className="text-green-600">From: {tx.from}</span> :
+                        <span className="text-red-600">To: {tx.to}</span>
+                      }
+                    </TableCell>
+                    <TableCell className={`text-right font-medium ${
+                      tx.to === user?.username ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {tx.to === user?.username ? '+' : '-'}
+                      {tx.amount}
+                    </TableCell>
+                  </motion.tr>
+                ))}
+                {transactions.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                      No transactions found
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

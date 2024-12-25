@@ -8,9 +8,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { TokenBrowser } from './TokenBrowser';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Button } from './ui/button';
+import { ChevronDown } from 'lucide-react';
 
 export function TokenBalanceCard() {
-  const { balance, isLoading, transactions = [] } = useBlockchain();
+  const { balance, isLoading, transactions = [], tokens = [] } = useBlockchain();
 
   // Get the most recent 4 transactions, including sends, purchases, and task-related
   const recentTransactions = transactions
@@ -84,11 +92,9 @@ export function TokenBalanceCard() {
                     <p className="text-sm text-muted-foreground">
                       {format(new Date(tx.timestamp), 'MMM d, yyyy h:mm a')}
                     </p>
-                    {tx.fromAddress && tx.toAddress && (
-                      <p className="text-xs text-muted-foreground">
-                        {tx.fromAddress} → {tx.toAddress}
-                      </p>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {tx.from} → {tx.to}
+                    </p>
                   </TooltipContent>
                 </Tooltip>
               ))}
@@ -99,6 +105,18 @@ export function TokenBalanceCard() {
               </div>
             )}
           </div>
+
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button variant="outline" className="w-full">
+                <ChevronDown className="h-4 w-4 mr-2" />
+                View All Tokens
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-4">
+              <TokenBrowser tokens={tokens} isLoading={isLoading} />
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </CardContent>
     </Card>
