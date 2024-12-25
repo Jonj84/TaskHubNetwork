@@ -1,17 +1,15 @@
 import { db } from "@db";
 import { users, type User, tokenTransactions, tokens } from "@db/schema";
 import { eq, sql, and } from 'drizzle-orm';
-import { notifyBalanceUpdate } from '../ws';
+import { broadcastToUser } from '../ws';
 
 // Simple in-memory cache for balance values
 const balanceCache = new Map<string, {
   balance: number;
   timestamp: number;
-  transactionCount: number;
 }>();
 
 const CACHE_TTL = 30000; // 30 seconds
-const FORCE_REFRESH_TRANSACTION_COUNT = 10; // Force refresh after 10 new transactions
 
 export class BalanceTracker {
   private static instance: BalanceTracker;
@@ -52,16 +50,10 @@ export class BalanceTracker {
         return cached.balance;
       }
 
-      // Get active tokens count and transaction count in a single query
+      // Get active tokens count
       const result = await db
         .select({
-          activeTokens: sql<number>`COUNT(*)`,
-          transactionCount: sql<number>`(
-            SELECT COUNT(*) 
-            FROM ${tokenTransactions} 
-            WHERE ${tokenTransactions.toAddress} = ${username} 
-            OR ${tokenTransactions.fromAddress} = ${username}
-          )`
+          activeTokens: sql<number>`COUNT(*)`
         })
         .from(tokens)
         .where(
@@ -72,24 +64,21 @@ export class BalanceTracker {
         );
 
       const balance = Number(result[0]?.activeTokens || 0);
-      const transactionCount = Number(result[0]?.transactionCount || 0);
 
       // Cache the result
       balanceCache.set(username, {
         balance,
-        timestamp: now,
-        transactionCount
+        timestamp: now
       });
 
       console.log('[Balance] Calculation complete:', {
         username,
         balance,
-        transactionCount,
         timestamp: new Date().toISOString()
       });
 
-      // Notify WebSocket subscribers of the balance update
-      await notifyBalanceUpdate(username, balance);
+      // Notify via WebSocket
+      broadcastToUser(username, 'balance_update', { balance });
 
       return balance;
     } catch (error) {
@@ -106,7 +95,7 @@ export class BalanceTracker {
   async forceSyncBalance(username: string): Promise<User> {
     try {
       console.log('[Balance] Force syncing balance for:', username);
-      balanceCache.delete(username); // Clear cache for this user
+      balanceCache.delete(username);
 
       // Calculate actual balance from tokens
       const actualBalance = await this.getBalance(username);
@@ -128,9 +117,6 @@ export class BalanceTracker {
         timestamp: new Date().toISOString()
       });
 
-      // Notify WebSocket subscribers of the balance update
-      await notifyBalanceUpdate(username, actualBalance);
-
       return updatedUser;
     } catch (error) {
       console.error('[Balance] Force sync failed:', {
@@ -143,7 +129,6 @@ export class BalanceTracker {
     }
   }
 
-  // Invalidate cache for a specific user
   invalidateCache(username: string) {
     balanceCache.delete(username);
   }
