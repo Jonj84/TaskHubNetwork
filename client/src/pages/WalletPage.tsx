@@ -20,8 +20,8 @@ import { Transaction } from '../lib/blockchain/types';
 import { motion } from 'framer-motion';
 
 interface GroupedTransactions {
-  miningRewards: Transaction[];
-  transfers: Transaction[];
+  purchases: Transaction[];
+  mining: Transaction[];
 }
 
 export default function WalletPage() {
@@ -68,13 +68,19 @@ export default function WalletPage() {
 
   // Group transactions by type for better organization
   const groupedTransactions = userTransactions.reduce<GroupedTransactions>((acc, tx) => {
-    if (tx.type === 'mint') {
-      acc.miningRewards.push(tx);
+    if (tx.type === 'mint' && tx.from === 'SYSTEM') {
+      if (tx.amount === 1) {
+        // Mining reward
+        acc.mining.push(tx);
+      } else {
+        // Token purchase
+        acc.purchases.push(tx);
+      }
     } else {
-      acc.transfers.push(tx);
+      acc.purchases.push(tx);
     }
     return acc;
-  }, { miningRewards: [], transfers: [] });
+  }, { purchases: [], mining: [] });
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -142,117 +148,51 @@ export default function WalletPage() {
         </Card>
       </div>
 
-      {/* Mining Rewards Section */}
-      {groupedTransactions.miningRewards.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Award className="h-5 w-5" />
-              Mining Rewards
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Block Hash</TableHead>
-                  <TableHead>Token IDs</TableHead>
-                  <TableHead>Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {groupedTransactions.miningRewards.map((tx, index) => (
-                  <motion.tr
-                    key={tx.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="border-b border-border hover:bg-muted/50"
-                  >
-                    <TableCell>
-                      {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {tx.blockHash?.substring(0, 10)}...
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {tx.tokenIds?.map(id => id.substring(0, 6)).join(', ')}
-                    </TableCell>
-                    <TableCell className="text-green-600">
-                      +1 (Mining Reward)
-                    </TableCell>
-                  </motion.tr>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Transaction History */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Database className="h-5 w-5" />
-            Token Transfers
+            Transaction History
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <div className="flex justify-center items-center py-8">
-              <LoadingSpinner size="lg" />
-            </div>
-          ) : groupedTransactions.transfers.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No transactions yet
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>From</TableHead>
-                  <TableHead>To</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Token IDs</TableHead>
-                  <TableHead>Block Hash</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {groupedTransactions.transfers.map((tx, index) => (
-                  <motion.tr
-                    key={tx.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="border-b border-border hover:bg-muted/50"
-                  >
-                    <TableCell>
-                      {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
-                    </TableCell>
-                    <TableCell>{tx.from === user?.username ? 'You' : tx.from}</TableCell>
-                    <TableCell>{tx.to === user?.username ? 'You' : tx.to}</TableCell>
-                    <TableCell className={tx.to === user?.username ? 'text-green-600' : 'text-red-600'}>
-                      {tx.to === user?.username ? '+' : '-'}
-                      {tx.type === 'mint' && tx.from === 'SYSTEM' ? (
-                        tx.amount // For purchased tokens, show actual amount
-                      ) : (
-                        tx.tokenIds?.length || tx.amount || 1 // Fallback for mining rewards
-                      )}
-                      {tx.type === 'mint' && tx.from === 'SYSTEM' ? ' Tokens' : ' (Mining Reward)'}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {tx.tokenIds?.map(id => id.substring(0, 6)).join(', ')}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {tx.blockHash?.substring(0, 10)}...
-                    </TableCell>
-                  </motion.tr>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Block Hash</TableHead>
+                <TableHead>Token IDs</TableHead>
+                <TableHead>Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {[...groupedTransactions.purchases, ...groupedTransactions.mining].map((tx, index) => (
+                <motion.tr
+                  key={tx.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  className="border-b border-border hover:bg-muted/50"
+                >
+                  <TableCell>
+                    {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {tx.blockHash?.substring(0, 10)}...
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {tx.tokenIds?.map(id => id.substring(0, 6)).join(', ')}
+                  </TableCell>
+                  <TableCell className={tx.to === user?.username ? 'text-green-600' : 'text-red-600'}>
+                    {tx.to === user?.username ? '+' : '-'}
+                    {tx.amount}
+                    {tx.type === 'mint' && tx.from === 'SYSTEM' && tx.amount === 1 ? ' (Mining Reward)' : ' Tokens'}
+                  </TableCell>
+                </motion.tr>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
