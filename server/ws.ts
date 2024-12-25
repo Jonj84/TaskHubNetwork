@@ -15,17 +15,20 @@ interface ClientConnection {
   connectionAttempts: number;
 }
 
+let wsServer: WebSocketServer | null = null;
+
 class WebSocketManager {
-  private wss: WebSocketServer;
   private connections: Map<string, ClientConnection> = new Map();
   private pingInterval: NodeJS.Timeout;
   private static readonly MAX_RECONNECT_ATTEMPTS = 5;
   private static readonly PING_INTERVAL = 30000; // 30 seconds
 
   constructor(server: Server) {
-    this.wss = new WebSocketServer({ noServer: true });
+    wsServer = new WebSocketServer({ 
+      noServer: true,
+      clientTracking: true
+    });
     this.setupServer(server);
-    // Initialize ping interval directly
     this.pingInterval = setInterval(() => this.checkConnections(), WebSocketManager.PING_INTERVAL);
     log('[WebSocket] Manager initialized');
   }
@@ -44,8 +47,12 @@ class WebSocketManager {
           return;
         }
 
-        this.wss.handleUpgrade(request, socket, head, (ws) => {
-          this.wss.emit('connection', ws, request);
+        if (!wsServer) {
+          throw new Error('WebSocket server not initialized');
+        }
+
+        wsServer.handleUpgrade(request, socket, head, (ws) => {
+          wsServer?.emit('connection', ws, request);
         });
       } catch (error) {
         log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
@@ -53,7 +60,11 @@ class WebSocketManager {
       }
     });
 
-    this.wss.on('connection', (ws: WebSocket, request: Request) => 
+    if (!wsServer) {
+      throw new Error('WebSocket server not initialized');
+    }
+
+    wsServer.on('connection', (ws: WebSocket, request: Request) => 
       this.handleConnection(ws, request));
   }
 
@@ -73,28 +84,26 @@ class WebSocketManager {
 
     ws.on('pong', () => this.handlePong(connectionId));
     ws.on('message', (data) => this.handleMessage(connectionId, data));
-    ws.on('close', () => this.handleClose(connectionId));
+    ws.on('close', (code, reason) => {
+      log(`[WebSocket] Connection closed: ${connectionId}, Code: ${code}, Reason: ${reason}`);
+      this.handleClose(connectionId);
+    });
     ws.on('error', (error) => {
       log(`[WebSocket] Error for connection ${connectionId}: ${error.message}`);
+      // Don't close the connection here, let the error propagate to onclose
     });
 
     // If authenticated, send initial balance
     if (userId) {
-      this.sendInitialBalance(ws, userId).catch(error => {
-        log(`[WebSocket] Failed to send initial balance: ${error.message}`);
-      });
-    }
-  }
-
-  private async sendInitialBalance(ws: WebSocket, userId: string) {
-    try {
-      const balance = await balanceTracker.getBalance(userId);
-      this.sendMessage(ws, {
-        type: 'balance_update',
-        data: { balance }
-      });
-    } catch (error) {
-      log(`[WebSocket] Balance fetch error: ${error instanceof Error ? error.message : String(error)}`);
+      try {
+        const balance = await balanceTracker.getBalance(userId);
+        this.sendMessage(ws, {
+          type: 'balance_update',
+          data: { balance }
+        });
+      } catch (error) {
+        log(`[WebSocket] Balance fetch error: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
@@ -122,18 +131,33 @@ class WebSocketManager {
       if (!connection) return;
 
       const message = JSON.parse(data.toString());
-      log(`[WebSocket] Received message: ${message.type} from ${connectionId}`);
+
+      if (message.type !== 'ping') {
+        log(`[WebSocket] Received message: ${message.type} from ${connectionId}`);
+      }
 
       switch (message.type) {
         case 'subscribe_balance':
           if (connection.userId) {
-            this.sendInitialBalance(connection.ws, connection.userId);
+            balanceTracker.getBalance(connection.userId)
+              .then(balance => {
+                this.sendMessage(connection.ws, {
+                  type: 'balance_update',
+                  data: { balance }
+                });
+              })
+              .catch(error => {
+                log(`[WebSocket] Balance subscription error: ${error.message}`);
+              });
           }
           break;
 
         case 'ping':
           this.sendMessage(connection.ws, { type: 'pong' });
           break;
+
+        default:
+          log(`[WebSocket] Unknown message type: ${message.type}`);
       }
     } catch (error) {
       log(`[WebSocket] Message handling error: ${error instanceof Error ? error.message : String(error)}`);
@@ -143,7 +167,6 @@ class WebSocketManager {
   private handleClose(connectionId: string) {
     const connection = this.connections.get(connectionId);
     if (connection) {
-      log(`[WebSocket] Connection closed: ${connectionId}`);
       this.connections.delete(connectionId);
     }
   }
@@ -151,7 +174,8 @@ class WebSocketManager {
   private checkConnections() {
     this.connections.forEach((connection, id) => {
       if (!connection.isAlive) {
-        log(`[WebSocket] Connection ${id} not responding to ping`);
+        log(`[WebSocket] Connection ${id} not responding to ping, terminating`);
+        connection.ws.terminate();
         this.handleClose(id);
         return;
       }
@@ -161,12 +185,14 @@ class WebSocketManager {
         connection.ws.ping();
       } catch (error) {
         log(`[WebSocket] Ping failed for ${id}: ${error instanceof Error ? error.message : String(error)}`);
+        connection.ws.terminate();
         this.handleClose(id);
       }
     });
   }
 
   public broadcastToUser(userId: string, type: string, data: any) {
+    log(`[WebSocket] Broadcasting to user ${userId}: ${type}`);
     this.connections.forEach(connection => {
       if (connection.userId === userId && connection.ws.readyState === WebSocket.OPEN) {
         try {
@@ -182,7 +208,7 @@ class WebSocketManager {
     clearInterval(this.pingInterval);
     this.connections.forEach((connection) => {
       try {
-        connection.ws.close();
+        connection.ws.close(1000, 'Server shutdown');
       } catch (error) {
         log(`[WebSocket] Cleanup error: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -197,7 +223,7 @@ export function setupWebSocket(server: Server) {
   if (!wsManager) {
     wsManager = new WebSocketManager(server);
   }
-  return wsManager.wss;
+  return wsServer;
 }
 
 export function broadcastToUser(userId: string, type: string, data: any) {

@@ -33,7 +33,8 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
 
   const connect = () => {
     if (ws?.readyState === WebSocket.CONNECTING) {
-      return; // Don't create multiple connections
+      console.log('[WebSocket] Already connecting, skipping reconnect');
+      return;
     }
 
     try {
@@ -49,40 +50,51 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type !== 'pong') {
+            console.log('[WebSocket] Received message:', data);
+          }
           onMessage(data);
         } catch (error) {
-          // Silently log parse errors
           console.error('[WebSocket] Message parse error:', error);
         }
       };
 
-      ws.onclose = () => {
-        // Only log first disconnection
-        if (ws?.readyState !== WebSocket.CONNECTING) {
-          console.log('[WebSocket] Connection closed');
-        }
+      ws.onclose = (event) => {
+        console.log('[WebSocket] Connection closed:', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean
+        });
         onStatusChange('disconnected');
 
         // Only attempt reconnect if we haven't reached the limit
         if (reconnectAttempt < reconnectAttempts) {
           const delay = Math.min(backoffDelay * Math.pow(2, reconnectAttempt), maxBackoff);
+          console.log('[WebSocket] Scheduling reconnect:', {
+            attempt: reconnectAttempt + 1,
+            delay: `${delay}ms`
+          });
+
           reconnectTimeout = setTimeout(() => {
             reconnectAttempt++;
             connect();
           }, delay);
+        } else {
+          console.log('[WebSocket] Max reconnection attempts reached');
         }
       };
 
-      ws.onerror = () => {
-        // Just log that an error occurred, don't show details
-        if (ws?.readyState !== WebSocket.CONNECTING) {
-          console.log('[WebSocket] Connection error occurred');
-        }
+      ws.onerror = (event) => {
+        console.log('[WebSocket] Connection error:', {
+          type: event.type,
+          timestamp: new Date().toISOString()
+        });
+        onStatusChange('error');
       };
 
     } catch (error) {
-      // Log connection errors but don't propagate
       console.error('[WebSocket] Setup error:', error);
+      onStatusChange('error');
     }
   };
 
@@ -93,17 +105,18 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
     }
 
     if (ws) {
-      ws.onclose = null; // Prevent reconnect on manual disconnect
       try {
-        ws.close();
+        ws.onclose = null; // Prevent reconnect on manual disconnect
+        ws.close(1000, 'User initiated disconnect');
       } catch (error) {
-        // Ignore close errors
+        console.error('[WebSocket] Disconnect error:', error);
       }
       ws = null;
     }
   };
 
   const manualReconnect = () => {
+    console.log('[WebSocket] Manual reconnection initiated');
     disconnect();
     reconnectAttempt = 0;
     backoffDelay = initialBackoff;
@@ -123,10 +136,10 @@ export function useWebSocket(url: string) {
     createWebSocketService({
       url,
       onStatusChange: (newStatus) => {
+        console.log('[WebSocket] Status changed:', newStatus);
         setStatus(newStatus);
       },
       onMessage: (data) => {
-        // Only log non-ping messages
         if (data.type !== 'pong') {
           console.log('[WebSocket] Received message:', data);
         }
@@ -138,16 +151,17 @@ export function useWebSocket(url: string) {
   );
 
   useEffect(() => {
-    // Connect when the component mounts
+    console.log('[WebSocket] Initializing connection to:', url);
     service.connect();
 
-    // Cleanup on unmount
     return () => {
+      console.log('[WebSocket] Cleaning up connection');
       service.disconnect();
     };
-  }, [service]);
+  }, [service, url]);
 
   const reconnect = useCallback(() => {
+    console.log('[WebSocket] Manual reconnection requested');
     service.manualReconnect();
   }, [service]);
 

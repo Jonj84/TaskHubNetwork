@@ -120,7 +120,7 @@ export class BalanceTracker {
         timestamp: new Date().toISOString()
       });
 
-      // Ensure WebSocket clients are notified
+      // Ensure WebSocket clients are notified with sync status
       broadcastToUser(username, 'balance_update', { 
         balance: actualBalance,
         synced: true
