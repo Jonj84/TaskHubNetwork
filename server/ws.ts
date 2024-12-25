@@ -2,35 +2,14 @@ import { WebSocket, WebSocketServer } from "ws";
 import { type Server } from "http";
 import { log } from "./vite";
 
-// Store active connections with metadata
-const clients = new Map<WebSocket, {
+interface ClientMetadata {
   lastPing: number;
   subscriptions: Set<string>;
   isAlive: boolean;
-}>();
-
-// Create a broadcast function that's used across the application
-export function broadcast(type: string, data: any, filter?: (client: WebSocket) => boolean) {
-  const message = JSON.stringify({ type, data });
-  clients.forEach((metadata, client) => {
-    if (client.readyState === WebSocket.OPEN && metadata.isAlive && (!filter || filter(client))) {
-      try {
-        client.send(message);
-      } catch (error) {
-        console.error('[WebSocket] Failed to send message:', error);
-        cleanupClient(client);
-      }
-    }
-  });
 }
 
-function cleanupClient(ws: WebSocket) {
-  const metadata = clients.get(ws);
-  if (metadata) {
-    metadata.subscriptions.clear();
-    clients.delete(ws);
-  }
-}
+// Store active connections with metadata
+const clients = new Map<WebSocket, ClientMetadata>();
 
 function heartbeat(this: WebSocket) {
   const metadata = clients.get(this);
@@ -40,65 +19,90 @@ function heartbeat(this: WebSocket) {
   }
 }
 
+function cleanupClient(ws: WebSocket) {
+  try {
+    const metadata = clients.get(ws);
+    if (metadata) {
+      metadata.subscriptions.clear();
+      clients.delete(ws);
+    }
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.close(1000, 'Server cleanup');
+    }
+  } catch (error) {
+    log(`[WebSocket] Cleanup error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+export function broadcast(type: string, data: any, filter?: (client: WebSocket) => boolean) {
+  const message = JSON.stringify({ type, data });
+  clients.forEach((metadata, client) => {
+    if (client.readyState === WebSocket.OPEN && metadata.isAlive && (!filter || filter(client))) {
+      try {
+        client.send(message);
+      } catch (error) {
+        log(`[WebSocket] Failed to send message: ${error instanceof Error ? error.message : String(error)}`);
+        cleanupClient(client);
+      }
+    }
+  });
+}
+
 export function setupWebSocket(server: Server): WebSocketServer {
+  // Create WebSocket server
   const wss = new WebSocketServer({ noServer: true });
 
-  // Handle upgrade manually to filter out Vite HMR
+  // Handle upgrades
   server.on('upgrade', (request, socket, head) => {
     try {
-      const { pathname } = new URL(request.url || '', `http://${request.headers.host}`);
-      const protocol = request.headers['sec-websocket-protocol'];
-
-      // Skip non-websocket upgrades
-      if (!protocol) {
-        socket.destroy();
+      // Skip non-API WebSocket upgrades
+      if (!request.url?.startsWith('/api/')) {
+        log('[WebSocket] Non-API upgrade request, ignoring');
         return;
       }
 
       // Let Vite handle its own WebSocket connections
-      if (protocol === 'vite-hmr') {
+      if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
+        log('[WebSocket] Vite HMR request, skipping');
         return;
       }
 
-      // Only handle WebSocket connections to our API endpoints
-      if (!pathname.startsWith('/api/')) {
-        socket.destroy();
-        return;
-      }
+      log(`[WebSocket] Handling upgrade for: ${request.url}`);
 
-      log(`[WebSocket] Handling upgrade for: ${pathname}`);
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });
     } catch (error) {
-      console.error('[WebSocket] Upgrade error:', error);
-      socket.destroy();
+      log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
+      if (!socket.destroyed) {
+        socket.destroy();
+      }
     }
   });
 
-  // Set up periodic checks for connection health
+  // Set up connection monitoring
   const interval = setInterval(() => {
     clients.forEach((metadata, ws) => {
       if (!metadata.isAlive) {
         log('[WebSocket] Terminating inactive connection');
         cleanupClient(ws);
-        ws.terminate();
         return;
       }
+
       metadata.isAlive = false;
       try {
         ws.ping();
       } catch (error) {
-        console.error('[WebSocket] Failed to send ping:', error);
+        log(`[WebSocket] Ping failed: ${error instanceof Error ? error.message : String(error)}`);
         cleanupClient(ws);
-        ws.terminate();
       }
     });
   }, 30000);
 
-  wss.on("connection", (ws, request) => {
+  // Handle new connections
+  wss.on('connection', (ws, request) => {
     try {
-      const { pathname } = new URL(request.url || '', `http://${request.headers.host}`);
+      const pathname = request.url || '/api/unknown';
 
       // Initialize client metadata
       clients.set(ws, {
@@ -107,28 +111,23 @@ export function setupWebSocket(server: Server): WebSocketServer {
         isAlive: true
       });
 
-      log('[WebSocket] New client connected to:', pathname);
+      log(`[WebSocket] New client connected to: ${pathname}`);
 
+      // Set up heartbeat
       ws.on('ping', heartbeat);
       ws.on('pong', heartbeat);
 
-      // Handle client messages
-      ws.on("message", (data) => {
+      // Handle messages
+      ws.on('message', (data) => {
         try {
           const message = JSON.parse(data.toString());
 
-          // Handle ping messages from client
+          // Handle ping messages
           if (message.type === 'ping') {
             ws.send(JSON.stringify({ type: 'pong' }));
             heartbeat.call(ws);
             return;
           }
-
-          log('[WebSocket] Message received:', JSON.stringify({
-            type: message.type,
-            pathname,
-            timestamp: new Date().toISOString()
-          }));
 
           // Update last activity
           const metadata = clients.get(ws);
@@ -136,53 +135,45 @@ export function setupWebSocket(server: Server): WebSocketServer {
             metadata.lastPing = Date.now();
           }
 
-          // Broadcast to relevant subscribers only
+          // Broadcast to subscribers
           broadcast(message.type, message.data, (client) => {
             const clientData = clients.get(client);
             return clientData?.subscriptions.has(pathname) || false;
           });
         } catch (error) {
-          console.error('[WebSocket] Error processing message:', error);
+          log(`[WebSocket] Message processing error: ${error instanceof Error ? error.message : String(error)}`);
         }
       });
 
-      // Handle client disconnect
-      ws.on("close", (code, reason) => {
-        log('[WebSocket] Client disconnected:', JSON.stringify({
-          pathname,
-          code,
-          reason: reason.toString()
-        }));
+      // Handle disconnection
+      ws.on('close', () => {
+        log(`[WebSocket] Client disconnected from ${pathname}`);
         cleanupClient(ws);
       });
 
-      // Handle client errors
-      ws.on("error", (error) => {
-        console.error("[WebSocket] Client error:", JSON.stringify({
-          error: error instanceof Error ? error.message : String(error),
-          pathname,
-          timestamp: new Date().toISOString()
-        }));
+      // Handle errors
+      ws.on('error', (error) => {
+        log(`[WebSocket] Client error: ${error instanceof Error ? error.message : String(error)}`);
         cleanupClient(ws);
-        ws.terminate();
       });
 
-      // Send initial connection success message
-      ws.send(JSON.stringify({ 
-        type: 'connected', 
-        data: { 
+      // Send connection confirmation
+      ws.send(JSON.stringify({
+        type: 'connected',
+        data: {
           message: 'Connected successfully',
           endpoint: pathname,
           timestamp: new Date().toISOString()
-        } 
+        }
       }));
+
     } catch (error) {
-      console.error('[WebSocket] Connection setup error:', error);
-      ws.terminate();
+      log(`[WebSocket] Connection setup error: ${error instanceof Error ? error.message : String(error)}`);
+      cleanupClient(ws);
     }
   });
 
-  // Clean up interval on server close
+  // Clean up on server close
   wss.on('close', () => {
     clearInterval(interval);
   });
