@@ -2,6 +2,12 @@ import { useBlockchain } from '../hooks/use-blockchain';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Coins } from 'lucide-react';
 import { format } from 'date-fns';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function TokenBalanceCard() {
   const { balance, isLoading, transactions = [] } = useBlockchain();
@@ -19,6 +25,17 @@ export function TokenBalanceCard() {
               tx.type === 'release' ? tx.amount :
               tx.type === 'purchase' ? tx.amount : -tx.amount
     }));
+
+  const getTransactionLabel = (type: string) => {
+    switch (type) {
+      case 'purchase': return 'Token Purchase';
+      case 'escrow': return 'Task Escrow Lock';
+      case 'release': return 'Task Completion Release';
+      case 'send': return 'Sent Tokens';
+      case 'receive': return 'Received Tokens';
+      default: return type.charAt(0).toUpperCase() + type.slice(1);
+    }
+  };
 
   return (
     <Card className="bg-white shadow-sm">
@@ -42,21 +59,40 @@ export function TokenBalanceCard() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {recentTransactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="flex flex-col gap-1 px-3 py-2 rounded-lg"
-              >
-                <div className={`text-sm font-medium ${
-                  tx.amount > 0 ? 'text-green-700' : 'text-red-700'
-                }`}>
-                  {tx.amount > 0 ? '+' : ''}{tx.amount}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {format(new Date(tx.timestamp), 'MMM d, h:mm a')}
-                </div>
-              </div>
-            ))}
+            <TooltipProvider>
+              {recentTransactions.map((tx) => (
+                <Tooltip key={tx.id}>
+                  <TooltipTrigger>
+                    <div
+                      className="flex flex-col gap-1 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors cursor-help"
+                    >
+                      <div className={`text-sm font-medium ${
+                        tx.amount > 0 ? 'text-green-700' : 'text-red-700'
+                      }`}>
+                        {tx.amount > 0 ? '+' : ''}{tx.amount}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {format(new Date(tx.timestamp), 'MMM d, h:mm a')}
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="p-3 space-y-1">
+                    <p className="font-medium">{getTransactionLabel(tx.type)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Amount: {Math.abs(tx.amount)} tokens
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {format(new Date(tx.timestamp), 'MMM d, yyyy h:mm a')}
+                    </p>
+                    {tx.fromAddress && tx.toAddress && (
+                      <p className="text-xs text-muted-foreground">
+                        {tx.fromAddress} → {tx.toAddress}
+                      </p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </TooltipProvider>
             {recentTransactions.length === 0 && (
               <div className="w-full text-center text-sm text-muted-foreground py-2">
                 No recent transactions
