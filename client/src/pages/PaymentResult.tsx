@@ -40,24 +40,27 @@ export default function PaymentResult() {
           const data = await response.json();
           console.log('Payment verified successfully:', data);
 
-          // Invalidate queries to refresh data
-          queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-          queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] });
+          // Refresh token balance and history
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['/api/user'] }),
+            queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] })
+          ]);
 
           toast({
             title: 'Payment Successful',
-            description: `Successfully purchased ${data.tokenAmount} tokens!`,
+            description: `Successfully purchased ${data.tokenAmount} tokens! Your new balance is ${data.newBalance} tokens.`,
           });
 
           // Close any open Stripe popup windows
           if (window.opener) {
             window.opener.postMessage({ type: 'PAYMENT_COMPLETE', success: true }, '*');
+            window.close();
+          } else {
+            // If not in popup, redirect back to marketplace after a short delay
+            setTimeout(() => {
+              setLocation('/marketplace');
+            }, 2000);
           }
-
-          // Redirect back to marketplace after a short delay
-          setTimeout(() => {
-            setLocation('/marketplace');
-          }, 2000);
 
         } catch (error: any) {
           await logErrorToServer(error, 'payment_verification_failed');

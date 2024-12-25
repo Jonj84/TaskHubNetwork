@@ -238,22 +238,66 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       throw new Error('Missing required metadata in session');
     }
 
-    // Credit tokens to user
-    await creditTokensToUser(
-      parseInt(userId, 10),
-      parseInt(tokenAmount, 10),
-      session.payment_intent as string
-    );
+    // Credit tokens to user in a transaction
+    const result = await db.transaction(async (tx) => {
+      // Check if payment was already processed
+      const existingTransaction = await tx.query.tokenTransactions.findFirst({
+        where: eq(tokenTransactions.paymentId, session.payment_intent as string),
+      });
 
-    // Return success response
-    const response = {
+      if (existingTransaction?.status === 'completed') {
+        return {
+          status: 'already_processed',
+          transaction: existingTransaction
+        };
+      }
+
+      // Update user's token balance
+      const [updatedUser] = await tx
+        .update(users)
+        .set({
+          tokenBalance: sql`token_balance + ${parseInt(tokenAmount, 10)}`,
+          updated_at: new Date()
+        })
+        .where(eq(users.id, parseInt(userId, 10)))
+        .returning({ 
+          newBalance: users.tokenBalance,
+          username: users.username 
+        });
+
+      console.log('Updated user balance:', updatedUser);
+
+      // Record the transaction
+      const [transaction] = await tx
+        .insert(tokenTransactions)
+        .values({
+          userId: parseInt(userId, 10),
+          amount: parseInt(tokenAmount, 10),
+          type: 'purchase',
+          status: 'completed',
+          paymentId: session.payment_intent as string,
+          timestamp: new Date()
+        })
+        .returning();
+
+      console.log('Recorded transaction:', transaction);
+
+      return {
+        status: 'success',
+        newBalance: updatedUser.newBalance,
+        transaction
+      };
+    });
+
+    console.log('Transaction completed:', result);
+
+    // Return success response with updated balance
+    res.json({
       success: true,
       tokenAmount: parseInt(tokenAmount, 10),
-      paymentId: session.payment_intent as string
-    };
-
-    console.log('Payment verification successful:', response);
-    res.json(response);
+      newBalance: result.newBalance,
+      paymentId: session.payment_intent
+    });
 
   } catch (error: any) {
     console.error('Payment verification error:', {
