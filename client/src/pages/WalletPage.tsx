@@ -26,7 +26,7 @@ interface GroupedTransactions {
 
 export default function WalletPage() {
   const { user } = useUser();
-  const { transactions, createTransaction, isLoading } = useBlockchain();
+  const { transactions, createTransaction, isLoading, balance } = useBlockchain();
   const [amount, setAmount] = useState(0);
   const [recipient, setRecipient] = useState('');
   const [error, setError] = useState<string | null>(null);
