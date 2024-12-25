@@ -33,8 +33,9 @@ export const tokens = pgTable("tokens", {
     }>;
     purchaseInfo?: {
       paymentId?: string;
-      price?: number;
+      price: number; // Make price required
       purchaseDate: Date;
+      reason?: 'purchase' | 'bonus';
     };
   }>(),
   created_at: timestamp("created_at").notNull().defaultNow(),
@@ -54,7 +55,14 @@ export const tokenTransactions = pgTable("token_transactions", {
   fromAddress: text("from_address"),
   toAddress: text("to_address"),
   tokenIds: text("token_ids").array(), // Array of token IDs involved in this transaction
-  metadata: jsonb("metadata"),
+  metadata: jsonb("metadata").$type<{
+    baseTokens: number;
+    bonusTokens: number;
+    pricePerToken?: number;
+    totalPrice?: number;
+    reason?: string;
+    timestamp: string;
+  }>(),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
