@@ -1,0 +1,104 @@
+WebSocket error: 
+Event {isTrusted: true}
+isTrusted: true
+get isTrusted: ƒ get isTrusted()
+[[Prototype]]: Event
+
+WebSocket connection closed
+WebSocket error: 
+Event {isTrusted: true}
+isTrusted: true
+get isTrusted: ƒ get isTrusted()
+[[Prototype]]: Event
+
+WebSocket connection closed
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 0}
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 0}
+[BlockchainService] Balance response: 
+Object {address: "jon", balance: 15002}
+[Blockchain] Balance fetched: 
+Object {username: "jon", balance: 15002}
+[Balance] Starting balance calculation for: jon
+[Balance] Token status for address: 
+Object {address: "jon", balance: 15002}
+WebSocket error: 
+Event {isTrusted: true}
+isTrusted: true
+get isTrusted: ƒ get isTrusted()
+[[Prototype]]: Event
+
+WebSocket connection closed
+[BlockchainService] Tokens fetched: 
+Object {username: "jon", count: 15002}
+[Blockchain] Tokens fetched: 
+Object {username: "jon", tokenCount: 15002}
+WebSocket error: 
+Event {isTrusted: true}
+isTrusted: true
+get isTrusted: ƒ get isTrusted()
+[[Prototype]]: Event
+
+WebSocket connection closed
+WebSocket error: 
+Event {isTrusted: true}
+isTrusted: true
+get isTrusted: ƒ get isTrusted()
+[[Prototype]]: Event
+
+WebSocket connection closed
+WebSocket error: 
+Event {isTrusted: true}
+isTrusted: true
+get isTrusted: ƒ get isTrusted()
+[[Prototype]]: Event
+
+WebSocket connection closed
+[WalletPage] Creating transaction: 
+Object {recipient: "jon", amount: 20000}
+[Blockchain] Creating transaction: 
+Object {to: "jon", amount: 20000}
+[BlockchainService] Creating transaction: 
+Object {to: "jon", amount: 20000}
+[BlockchainService] Transaction creation failed: 
+SyntaxError {}
+message: "Unexpected token '<', "<!DOCTYPE "... is not valid JSON"
+stack: "SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON"
+get stack: ƒ ()
+set stack: ƒ ()
+[[Prototype]]: Object
+
+[Blockchain] Transaction failed: 
+SyntaxError {}
+message: "Unexpected token '<', "<!DOCTYPE "... is not valid JSON"
+stack: "SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON"
+get stack: ƒ ()
+set stack: ƒ ()
+[[Prototype]]: Object
+
+[WalletPage] Transaction failed: 
+SyntaxError {}
+
+at t.value (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:17465)
+at new t (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:12630)
+at t.value (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:32766)
+at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:34400
+[WalletPage] Creating transaction: 
+Object {recipient: "jon", amount: 20}
+[Blockchain] Creating transaction: 
+Object {to: "jon", amount: 20}
+[BlockchainService] Creating transaction: 
+Object {to: "jon", amount: 20}
+[BlockchainService] Transaction creation failed: 
+SyntaxError {}
+
+[Blockchain] Transaction failed: 
+SyntaxError {}
+
+at t.value (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:17465)
+at new t (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:12630)
+at t.value (https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:32766)
+at https://60c225a6-0346-44db-896a-92df32233690-00-1548ry4dr40ve.picard.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:34400

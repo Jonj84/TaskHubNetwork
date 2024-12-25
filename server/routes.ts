@@ -75,6 +75,59 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // New Transaction Creation Endpoint
+  app.post('/api/blockchain/transaction', async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ 
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const { to, amount } = req.body;
+      console.log('[API] Creating transaction:', { 
+        from: req.user.username,
+        to, 
+        amount,
+        timestamp: new Date().toISOString()
+      });
+
+      if (!to || !amount) {
+        return res.status(400).json({
+          message: 'Missing required fields: to and amount',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      if (isNaN(amount) || amount <= 0) {
+        return res.status(400).json({
+          message: 'Amount must be a positive number',
+          code: 'INVALID_AMOUNT'
+        });
+      }
+
+      const transaction = await blockchainService.createTransaction(
+        req.user.username,
+        to,
+        amount
+      );
+
+      console.log('[API] Transaction created:', {
+        id: transaction.id,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(transaction);
+    } catch (error: any) {
+      console.error('[API] Transaction creation failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to create transaction',
+        code: 'TRANSACTION_ERROR'
+      });
+    }
+  });
+
   app.post('/api/tokens/purchase', (req: AuthRequest, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ message: 'Authentication required' });
