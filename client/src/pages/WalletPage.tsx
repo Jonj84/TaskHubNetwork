@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useUser } from '../hooks/use-user';
 import { useBlockchain } from '../hooks/use-blockchain';
 import { Button } from '@/components/ui/button';
@@ -181,39 +181,39 @@ export default function WalletPage() {
                 {[...purchases, ...mining]
                   .sort((a, b) => b.timestamp - a.timestamp)
                   .map((tx, index) => (
-                  <motion.tr
-                    key={tx.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="group border-b border-border hover:bg-muted/50"
-                  >
-                    <TableCell>
-                      {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
-                    </TableCell>
-                    <TableCell>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
+                    <motion.tr
+                      key={tx.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                      className="group border-b border-border hover:bg-muted/50"
+                    >
+                      <TableCell>
+                        {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
                         ${tx.type === 'mint' ? 'bg-blue-100 text-blue-800' :
                         tx.type === 'escrow' ? 'bg-yellow-100 text-yellow-800' :
                         tx.type === 'release' ? 'bg-green-100 text-green-800' :
                         'bg-gray-100 text-gray-800'}`}>
-                        {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {tx.to === user?.username ? 
-                        <span className="text-green-600">From: {tx.from}</span> :
-                        <span className="text-red-600">To: {tx.to}</span>
-                      }
-                    </TableCell>
-                    <TableCell className={`text-right font-medium ${
-                      tx.to === user?.username ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {tx.to === user?.username ? '+' : '-'}
-                      {tx.amount}
-                    </TableCell>
-                  </motion.tr>
-                ))}
+                          {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {tx.to === user?.username ?
+                          <span className="text-green-600">From: {tx.from}</span> :
+                          <span className="text-red-600">To: {tx.to}</span>
+                        }
+                      </TableCell>
+                      <TableCell className={`text-right font-medium ${
+                        tx.to === user?.username ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {tx.to === user?.username ? '+' : '-'}
+                        {tx.amount}
+                      </TableCell>
+                    </motion.tr>
+                  ))}
                 {transactions.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
