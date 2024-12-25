@@ -41,7 +41,8 @@ class WebSocketManager {
         }
 
         // Only handle API websocket connections
-        if (!request.url?.startsWith('/api/ws')) {
+        // Allow both /api/ws and /ws paths for compatibility
+        if (!request.url?.startsWith('/api/ws') && !request.url?.startsWith('/ws')) {
           log('[WebSocket] Ignoring non-API websocket connection');
           return;
         }
