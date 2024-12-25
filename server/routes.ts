@@ -117,7 +117,8 @@ export function registerRoutes(app: Express): Server {
         throw new Error('Authentication required');
       }
 
-      const result = await verifyStripePayment(req.params.sessionId, req.user);
+      const result = await verifyStripePayment(req.params.sessionId);
+      res.json(result);
 
       if (result.success) {
         // Create tokens using blockchain service

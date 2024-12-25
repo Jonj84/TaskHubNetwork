@@ -99,7 +99,7 @@ export async function createStripeSession(req: Request, res: Response) {
   }
 }
 
-export async function verifyStripePayment(sessionId: string, res: Response) {
+export async function verifyStripePayment(sessionId: string) {
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     console.log('Retrieved Stripe session:', {
