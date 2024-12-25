@@ -192,23 +192,48 @@ class Blockchain {
       }
     }
 
-    // Generate unique IDs for purchased tokens
-    const tokenIds = Array.from({ length: amount }, () => uuidv4());
-    console.log('Generated token IDs for purchase:', tokenIds);
+    // First create the base transaction for purchased tokens
+    const baseTokenIds = Array.from({ length: amount }, () => uuidv4());
+    console.log('Generated token IDs for base purchase:', baseTokenIds);
 
-    const transaction: Transaction = {
+    const baseTransaction: Transaction = {
       id: uuidv4(),
       from,
       to,
       amount,
       timestamp: Date.now(),
       type: from === 'SYSTEM' ? 'mint' : 'transfer',
-      tokenIds,
+      tokenIds: baseTokenIds,
       metadata
     };
 
-    this.pendingTransactions.push(transaction);
-    console.log('Added transaction to pending:', transaction);
+    this.pendingTransactions.push(baseTransaction);
+    console.log('Added base transaction to pending:', baseTransaction);
+
+    // If bonus tokens are specified, create a separate mining reward transaction
+    let bonusTokenIds: string[] = [];
+    if (metadata?.bonusTokens && metadata.bonusTokens > 0) {
+      bonusTokenIds = Array.from({ length: metadata.bonusTokens }, () => uuidv4());
+      console.log('Generated token IDs for bonus rewards:', bonusTokenIds);
+
+      const bonusTransaction: Transaction = {
+        id: uuidv4(),
+        from: 'SYSTEM',
+        to,
+        amount: metadata.bonusTokens,
+        timestamp: Date.now(),
+        type: 'mint',
+        tokenIds: bonusTokenIds,
+        metadata: {
+          ...metadata,
+          reason: 'volume_bonus',
+          originalTransactionId: baseTransaction.id
+        }
+      };
+
+      this.pendingTransactions.push(bonusTransaction);
+      console.log('Added bonus transaction to pending:', bonusTransaction);
+    }
 
     // Mine block immediately for simplicity
     const block = await this.minePendingTransactions(to);
@@ -217,8 +242,8 @@ class Blockchain {
     }
 
     try {
-      // Create purchased tokens in database
-      const tokensToCreate = tokenIds.map(tokenId => ({
+      // Create base purchased tokens in database
+      const baseTokensToCreate = baseTokenIds.map(tokenId => ({
         id: tokenId,
         creator: from,
         owner: to,
@@ -234,20 +259,17 @@ class Blockchain {
         }
       }));
 
-      await db.insert(tokens).values(tokensToCreate);
-      console.log('Created purchased tokens in database:', tokensToCreate.length);
+      await db.insert(tokens).values(baseTokensToCreate);
+      console.log('Created base purchased tokens in database:', baseTokensToCreate.length);
 
-      // Add purchased tokens to registry
-      tokensToCreate.forEach(token => {
+      // Add base tokens to registry
+      baseTokensToCreate.forEach(token => {
         this.tokenRegistry.set(token.id, token as Token);
         console.log('Added purchased token to registry:', { id: token.id, owner: token.owner });
       });
 
-      // Now create the bonus tokens if specified
-      if (metadata?.bonusTokens && metadata.bonusTokens > 0) {
-        console.log('Creating bonus mining reward tokens:', metadata.bonusTokens);
-        const bonusTokenIds = Array.from({ length: metadata.bonusTokens }, () => uuidv4());
-
+      // Create bonus tokens if specified
+      if (bonusTokenIds.length > 0) {
         const bonusTokensToCreate = bonusTokenIds.map(tokenId => ({
           id: tokenId,
           creator: 'SYSTEM',
@@ -258,13 +280,12 @@ class Blockchain {
             previousTransfers: [],
             purchaseInfo: {
               reason: 'volume_bonus',
-              originalPurchaseId: metadata.paymentId,
+              originalPurchaseId: metadata?.paymentId,
               purchaseDate: new Date()
             }
           }
         }));
 
-        // Create bonus tokens in database
         await db.insert(tokens).values(bonusTokensToCreate);
         console.log('Created bonus tokens in database:', bonusTokensToCreate.length);
 
@@ -273,10 +294,10 @@ class Blockchain {
           this.tokenRegistry.set(token.id, token as Token);
           console.log('Added bonus token to registry:', { id: token.id, owner: token.owner });
         });
-
-        // Add bonus token IDs to the result
-        tokenIds.push(...bonusTokenIds);
       }
+
+      // Combine all token IDs for the result
+      const allTokenIds = [...baseTokenIds, ...bonusTokenIds];
 
       // Update user balance after all tokens are created
       await this.updateUserBalance(to);
@@ -285,14 +306,15 @@ class Blockchain {
       }
 
       const result = {
-        id: transaction.id,
-        tokenIds,
+        id: baseTransaction.id,
+        tokenIds: allTokenIds,
         blockHash: block.hash
       };
 
       console.log('Transaction completed successfully:', {
         id: result.id,
-        tokenCount: result.tokenIds.length,
+        baseTokens: baseTokenIds.length,
+        bonusTokens: bonusTokenIds.length,
         blockHash: result.blockHash
       });
 
