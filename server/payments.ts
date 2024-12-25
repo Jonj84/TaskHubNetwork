@@ -38,52 +38,58 @@ async function creditTokensToUser(userId: number, tokenAmount: number, paymentId
   });
 
   try {
-    await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       console.log('Beginning database transaction');
 
+      // First check if this payment has already been processed
+      const existingTransaction = await tx.query.tokenTransactions.findFirst({
+        where: eq(tokenTransactions.paymentId, paymentId)
+      });
+
+      if (existingTransaction) {
+        console.log('Payment already processed:', existingTransaction);
+        return { status: 'already_processed', transaction: existingTransaction };
+      }
+
       // Update user's token balance
-      const updateResult = await tx
+      const [updateResult] = await tx
         .update(users)
         .set({
           tokenBalance: sql`token_balance + ${tokenAmount}`,
           updated_at: new Date()
         })
         .where(eq(users.id, userId))
-        .returning({ newBalance: users.tokenBalance });
+        .returning({ 
+          newBalance: users.tokenBalance,
+          username: users.username 
+        });
 
       console.log('Updated user token balance:', updateResult);
 
       // Record the transaction
-      const transactionResult = await tx.insert(tokenTransactions).values({
-        userId,
-        amount: tokenAmount,
-        type: 'purchase',
-        status: 'completed',
-        paymentId,
-        timestamp: new Date()
-      }).returning();
+      const [transactionResult] = await tx.insert(tokenTransactions)
+        .values({
+          userId,
+          amount: tokenAmount,
+          type: 'purchase',
+          status: 'completed',
+          paymentId,
+          timestamp: new Date()
+        })
+        .returning();
 
       console.log('Recorded token transaction:', transactionResult);
+
+      return { 
+        status: 'success', 
+        balance: updateResult.newBalance,
+        transaction: transactionResult
+      };
     });
 
-    // Verify the updated balance
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-      columns: {
-        tokenBalance: true,
-        username: true
-      }
-    });
+    console.log('Transaction completed successfully:', result);
+    return result;
 
-    console.log('Successfully credited tokens:', {
-      userId,
-      tokenAmount,
-      paymentId,
-      newBalance: user?.tokenBalance,
-      timestamp: new Date().toISOString()
-    });
-
-    return true;
   } catch (error) {
     console.error('Failed to credit tokens:', {
       error,
