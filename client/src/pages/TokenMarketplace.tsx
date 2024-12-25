@@ -12,13 +12,14 @@ import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, CreditCard, Percent } from 'lucide-react';
+import { AlertCircle, CreditCard, Gift } from 'lucide-react';
 import { logErrorToServer } from '@/lib/errorLogging';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface PriceInfo {
   basePrice: number;
-  discount: number;
+  bonusTokens: number;
+  bonusPercentage: number;
   finalPrice: number;
   tier: string;
 }
@@ -29,7 +30,8 @@ export default function TokenMarketplace() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [pricing, setPricing] = useState<PriceInfo>({
     basePrice: 0,
-    discount: 0,
+    bonusTokens: 0,
+    bonusPercentage: 0,
     finalPrice: 0,
     tier: 'standard',
   });
@@ -43,7 +45,7 @@ export default function TokenMarketplace() {
         setIsPriceLoading(true);
 
         if (!isValidAmount(tokenAmount)) {
-          setPricing({ basePrice: 0, discount: 0, finalPrice: 0, tier: 'standard' });
+          setPricing({ basePrice: 0, bonusTokens: 0, bonusPercentage: 0, finalPrice: 0, tier: 'standard' });
           return;
         }
 
@@ -170,7 +172,7 @@ export default function TokenMarketplace() {
       <div className="text-center mb-12">
         <h1 className="text-4xl font-bold mb-4">Purchase Tokens</h1>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-          Select the amount of tokens you want to purchase. Get volume discounts on larger purchases.
+          Select the amount of tokens you want to purchase. Get bonus mining rewards on larger purchases!
         </p>
       </div>
 
@@ -203,10 +205,10 @@ export default function TokenMarketplace() {
             </div>
 
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Volume Discounts:</span>
+              <span>Bonus Mining Rewards:</span>
               <div className="space-x-4">
-                <span>500+ tokens: 10% off</span>
-                <span>1000+ tokens: 20% off</span>
+                <span>500+ tokens: 10% bonus tokens</span>
+                <span>1000+ tokens: 20% bonus tokens</span>
               </div>
             </div>
           </div>
@@ -218,19 +220,19 @@ export default function TokenMarketplace() {
             transition={{ duration: 0.2 }}
           >
             <div className="flex justify-between text-sm">
-              <span>Base Price:</span>
+              <span>Base Tokens:</span>
               <motion.span
-                key={pricing.basePrice}
+                key={tokenAmount}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.2 }}
               >
-                ${pricing.basePrice.toFixed(2)}
+                {tokenAmount} tokens
               </motion.span>
             </div>
 
             <AnimatePresence>
-              {pricing.discount > 0 && (
+              {pricing.bonusTokens > 0 && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
@@ -238,17 +240,17 @@ export default function TokenMarketplace() {
                   className="flex justify-between text-sm text-green-500"
                 >
                   <span className="flex items-center gap-1">
-                    <Percent className="h-4 w-4" />
-                    Volume Discount ({pricing.tier}):
+                    <Gift className="h-4 w-4" />
+                    Bonus Mining Rewards ({pricing.tier}):
                   </span>
-                  <span>-{pricing.discount}%</span>
+                  <span>+{pricing.bonusTokens} tokens</span>
                 </motion.div>
               )}
             </AnimatePresence>
 
             <div className="border-t pt-2 mt-2">
               <div className="flex justify-between font-medium text-lg">
-                <span>Final Price:</span>
+                <span>Total Price:</span>
                 <motion.span
                   key={pricing.finalPrice}
                   initial={{ scale: 1.1 }}
@@ -258,6 +260,11 @@ export default function TokenMarketplace() {
                   ${pricing.finalPrice.toFixed(2)}
                 </motion.span>
               </div>
+              {pricing.bonusTokens > 0 && (
+                <div className="text-sm text-muted-foreground mt-1">
+                  Total tokens: {tokenAmount + pricing.bonusTokens}
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -274,7 +281,7 @@ export default function TokenMarketplace() {
             ) : (
               <div className="flex items-center justify-center gap-2">
                 <CreditCard className="h-5 w-5" />
-                <span>Purchase {tokenAmount} Tokens</span>
+                <span>Purchase Tokens</span>
               </div>
             )}
           </Button>
