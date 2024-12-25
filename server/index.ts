@@ -3,10 +3,36 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
 import { db } from "@db";
+import { IncomingMessage } from "http";
+import { Socket } from "net";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Configure WebSocket upgrade handling with proper typing and error handling
+app.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
+  try {
+    // Skip non-websocket upgrades
+    if (!request.headers['sec-websocket-protocol']) {
+      socket.end();
+      return;
+    }
+
+    // Allow Vite HMR websocket upgrades
+    if (request.headers['sec-websocket-protocol'].includes('vite-hmr')) {
+      // Let Vite handle its own WebSocket
+      return;
+    }
+
+    // If we reach here, it's an unknown WebSocket request
+    log('Unknown WebSocket upgrade request');
+    socket.end();
+  } catch (error) {
+    log(`WebSocket upgrade error: ${error}`);
+    socket.end();
+  }
+});
 
 // Request logging middleware with detailed error capture
 app.use((req, res, next) => {
