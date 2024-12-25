@@ -1,12 +1,25 @@
+export interface TokenMetadata {
+  createdAt: Date;
+  mintedInBlock: string;
+  previousTransfers: Array<{
+    id: string;
+    from: string;
+    to: string;
+    timestamp: number;
+    transactionId: string;
+  }>;
+  purchaseInfo?: {
+    paymentId?: string;
+    price?: number;
+    purchaseDate: Date;
+  };
+}
+
 export interface Token {
   id: string;
   creator: string;
   owner: string;
-  metadata: {
-    createdAt: Date;
-    mintedInBlock: string;
-    previousTransfers: string[];
-  };
+  metadata: TokenMetadata;
 }
 
 export interface Transaction {
@@ -18,6 +31,11 @@ export interface Transaction {
   type: 'mint' | 'transfer';
   tokenIds: string[];
   blockHash?: string;
+  metadata?: {
+    paymentId?: string;
+    price?: number;
+    reason?: string;
+  };
 }
 
 export interface BlockMetadata {

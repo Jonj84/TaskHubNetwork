@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { db } from "@db";
 import { tokenTransactions, users, tokenProcessingQueue } from "@db/schema";
 import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {blockchainService} from './blockchain';
 
 if (!process.env.STRIPE_SECRET_KEY) {

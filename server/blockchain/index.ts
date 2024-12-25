@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Transaction, Token, TransactionResult } from '../../client/src/lib/blockchain/types';
+import type { Transaction, Token, TransactionResult, TokenMetadata } from '../../client/src/lib/blockchain/types';
 import { createHash } from 'crypto';
 
 class Block {
@@ -51,7 +51,7 @@ class Block {
         metadata: {
           createdAt: new Date(),
           mintedInBlock: this.hash,
-          previousTransfers: []
+          previousTransfers: [],
         }
       };
 
@@ -65,7 +65,10 @@ class Block {
         amount: 1,
         timestamp: Date.now(),
         type: 'mint',
-        tokenIds: [rewardTokenId]
+        tokenIds: [rewardTokenId],
+        metadata: {
+          reason: 'mining_reward'
+        }
       };
 
       this.transactions.push(rewardTransaction);
@@ -126,16 +129,17 @@ class Blockchain {
   }
 
   getBalance(address: string): number {
-    if (!this.balances.has(address)) {
-      // Initialize balance if not exists
-      const balance = Array.from(this.tokenRegistry.values())
-        .filter(token => token.owner === address)
-        .length;
-      this.balances.set(address, balance);
-      console.log('Initialized balance for:', address, 'Balance:', balance);
+    console.log('Calculating balance for address:', address);
+
+    // Calculate balance by counting tokens owned by the address
+    let balance = 0;
+    for (const token of this.tokenRegistry.values()) {
+      if (token.owner === address) {
+        balance++;
+      }
     }
-    const balance = this.balances.get(address) || 0;
-    console.log('Getting balance for:', address, 'Balance:', balance);
+
+    console.log('Calculated balance:', { address, balance, totalTokens: this.tokenRegistry.size });
     return balance;
   }
 
@@ -143,8 +147,9 @@ class Blockchain {
     return this.tokenRegistry.get(tokenId);
   }
 
-  createTransaction(from: string, to: string, amount: number): TransactionResult {
-    console.log('Creating transaction:', { from, to, amount });
+  createTransaction(from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number }): TransactionResult {
+    console.log('Creating transaction:', { from, to, amount, metadata });
+
     if (!from || !to) {
       throw new Error('Transaction must include from and to addresses');
     }
@@ -173,7 +178,8 @@ class Blockchain {
       amount,
       timestamp: Date.now(),
       type: from === 'SYSTEM' ? 'mint' : 'transfer',
-      tokenIds
+      tokenIds,
+      metadata
     };
 
     this.pendingTransactions.push(transaction);
@@ -194,23 +200,23 @@ class Blockchain {
         metadata: {
           createdAt: new Date(),
           mintedInBlock: block.hash,
-          previousTransfers: []
+          previousTransfers: [],
+          purchaseInfo: metadata ? {
+            paymentId: metadata.paymentId,
+            price: metadata.price,
+            purchaseDate: new Date()
+          } : undefined
         }
       };
       this.tokenRegistry.set(tokenId, token);
 
-      // Update balances
-      if (from !== 'SYSTEM') {
-        const fromBalance = this.getBalance(from);
-        this.balances.set(from, fromBalance - 1);
-      }
-      const toBalance = this.getBalance(to);
-      this.balances.set(to, toBalance + 1);
-    });
-
-    console.log('Updated balances:', {
-      from: from !== 'SYSTEM' ? this.getBalance(from) : 'N/A',
-      to: this.getBalance(to)
+      // Log token creation
+      console.log('Created new token:', {
+        tokenId,
+        creator: from,
+        owner: to,
+        metadata: token.metadata
+      });
     });
 
     const result = {
@@ -238,14 +244,12 @@ class Blockchain {
 
     block.mineBlock(minerAddress);
 
-    // Add new tokens to global registry and update balances
+    // Add new tokens to global registry
     const blockTokens = block.getTokens();
     console.log('New block tokens:', Array.from(blockTokens.entries()));
     blockTokens.forEach((token, id) => {
       this.tokenRegistry.set(id, token);
-      // Update balance for mining rewards
-      const ownerBalance = this.getBalance(token.owner);
-      this.balances.set(token.owner, ownerBalance + 1);
+      console.log('Added token to registry:', { id, owner: token.owner });
     });
 
     this.chain.push(block);
@@ -261,8 +265,8 @@ console.log('Creating blockchain service singleton...');
 const blockchain = new Blockchain();
 
 export const blockchainService = {
-  createTransaction: (from: string, to: string, amount: number) =>
-    blockchain.createTransaction(from, to, amount),
+  createTransaction: (from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number }) =>
+    blockchain.createTransaction(from, to, amount, metadata),
   getAllTransactions: () => blockchain.getAllTransactions(),
   getPendingTransactions: () => blockchain.getPendingTransactions(),
   getBalance: (address: string) => blockchain.getBalance(address),

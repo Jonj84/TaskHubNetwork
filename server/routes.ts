@@ -142,11 +142,15 @@ export function registerRoutes(app: Express): Server {
             throw new Error('User not found');
           }
 
-          // Create blockchain transaction which will generate tokens
+          // Create blockchain transaction which will generate tokens with metadata
           const blockchainTx = await blockchainService.createTransaction(
             'SYSTEM',
             user.username,
-            queueItem.amount
+            queueItem.amount,
+            {
+              paymentId: queueItem.paymentId,
+              price: queueItem.metadata?.price
+            }
           );
 
           // Update user's token balance

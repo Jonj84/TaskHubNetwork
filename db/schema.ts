@@ -19,7 +19,18 @@ export const tokenProcessingQueue = pgTable("token_processing_queue", {
   status: text("status", {
     enum: ["pending", "processing", "completed", "failed"]
   }).notNull().default("pending"),
-  metadata: jsonb("metadata"),
+  metadata: jsonb("metadata").$type<{
+    sessionId?: string;
+    paymentIntent?: string;
+    customerEmail?: string;
+    purchaseDate?: string;
+    price?: number;
+    tokenSpecifications?: {
+      tier: string;
+      generationType: string;
+      source: string;
+    };
+  }>(),
   retryCount: integer("retry_count").notNull().default(0),
   error: text("error"),
   created_at: timestamp("created_at").notNull().defaultNow(),
