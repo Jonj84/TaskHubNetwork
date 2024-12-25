@@ -149,7 +149,7 @@ class Blockchain {
     return this.tokenRegistry.get(tokenId);
   }
 
-  async createTransaction(from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number }): Promise<TransactionResult> {
+  async createTransaction(from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number; bonusTokens?: number }): Promise<TransactionResult> {
     console.log('Creating transaction:', { from, to, amount, metadata });
 
     if (!from || !to) {
@@ -214,7 +214,41 @@ class Blockchain {
       await db.insert(tokens).values(tokensToCreate);
       console.log('Created tokens in database:', tokensToCreate);
 
-      // Update token registry
+      // If there are bonus tokens, create them as mining rewards
+      if (metadata?.bonusTokens && metadata.bonusTokens > 0) {
+        console.log('Creating bonus mining reward tokens:', metadata.bonusTokens);
+        const bonusTokenIds = Array.from({ length: metadata.bonusTokens }, () => uuidv4());
+
+        const bonusTokensToCreate = bonusTokenIds.map(tokenId => ({
+          id: tokenId,
+          creator: 'SYSTEM',
+          owner: to,
+          mintedInBlock: block.hash,
+          metadata: {
+            createdAt: new Date(),
+            previousTransfers: [],
+            purchaseInfo: {
+              reason: 'volume_bonus',
+              originalPurchaseId: metadata.paymentId,
+              purchaseDate: new Date()
+            }
+          }
+        }));
+
+        await db.insert(tokens).values(bonusTokensToCreate);
+        console.log('Created bonus tokens in database:', bonusTokensToCreate);
+
+        // Add bonus tokens to registry
+        bonusTokensToCreate.forEach(token => {
+          this.tokenRegistry.set(token.id, token as Token);
+          console.log('Added bonus token to registry:', { id: token.id, owner: token.owner });
+        });
+
+        // Add all token IDs to the result
+        tokenIds.push(...bonusTokenIds);
+      }
+
+      // Update token registry with purchased tokens
       tokensToCreate.forEach(token => {
         this.tokenRegistry.set(token.id, token as Token);
         console.log('Added token to registry:', { id: token.id, owner: token.owner });
@@ -271,7 +305,7 @@ console.log('Creating blockchain service singleton...');
 const blockchain = new Blockchain();
 
 export const blockchainService = {
-  createTransaction: (from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number }) =>
+  createTransaction: (from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number; bonusTokens?: number }) =>
     blockchain.createTransaction(from, to, amount, metadata),
   getAllTransactions: () => blockchain.getAllTransactions(),
   getPendingTransactions: () => blockchain.getPendingTransactions(),

@@ -15,25 +15,25 @@ const PRICING_TIERS = {
     minTokens: 1,
     maxTokens: 499,
     pricePerToken: 1.00,
-    discount: 0
+    bonusPercentage: 0
   },
   plus: {
     name: 'Plus',
     minTokens: 500,
     maxTokens: 999,
-    pricePerToken: 0.90, // 10% discount
-    discount: 10
+    pricePerToken: 1.00,
+    bonusPercentage: 10 // 10% bonus tokens
   },
   premium: {
     name: 'Premium',
     minTokens: 1000,
     maxTokens: 10000,
-    pricePerToken: 0.80, // 20% discount
-    discount: 20
+    pricePerToken: 1.00,
+    bonusPercentage: 20 // 20% bonus tokens
   }
 };
 
-// Calculate price with volume discounts based on tiers
+// Calculate price and bonus tokens based on tiers
 function calculatePrice(amount: number) {
   let tier = 'standard';
 
@@ -44,13 +44,14 @@ function calculatePrice(amount: number) {
   }
 
   const selectedTier = PRICING_TIERS[tier as keyof typeof PRICING_TIERS];
-  const basePrice = amount;
-  const finalPrice = amount * selectedTier.pricePerToken;
+  const basePrice = amount * selectedTier.pricePerToken;
+  const bonusTokens = Math.floor(amount * (selectedTier.bonusPercentage / 100));
 
   return {
-    basePrice,
-    discount: selectedTier.discount,
-    finalPrice: Math.round(finalPrice * 100) / 100,
+    basePrice: Math.round(basePrice * 100) / 100,
+    bonusTokens,
+    bonusPercentage: selectedTier.bonusPercentage,
+    finalPrice: Math.round(basePrice * 100) / 100,
     tier: selectedTier.name.toLowerCase()
   };
 }
