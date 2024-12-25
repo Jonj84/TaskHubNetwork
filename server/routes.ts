@@ -148,6 +148,79 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add task acceptance endpoint
+  app.post('/api/tasks/:taskId/accept', async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const taskId = parseInt(req.params.taskId);
+      if (isNaN(taskId)) {
+        return res.status(400).json({
+          message: 'Invalid task ID',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      // Get the task and verify it can be accepted
+      const [task] = await db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .limit(1);
+
+      if (!task) {
+        return res.status(404).json({
+          message: 'Task not found',
+          code: 'TASK_NOT_FOUND'
+        });
+      }
+
+      if (task.status !== 'open') {
+        return res.status(400).json({
+          message: 'Task is not available',
+          code: 'TASK_NOT_AVAILABLE'
+        });
+      }
+
+      if (task.creatorId === req.user.id) {
+        return res.status(400).json({
+          message: 'Cannot accept your own task',
+          code: 'INVALID_OPERATION'
+        });
+      }
+
+      // Update task status and assign worker
+      const [updatedTask] = await db
+        .update(tasks)
+        .set({
+          status: 'in_progress',
+          workerId: req.user.id,
+          updated_at: new Date()
+        })
+        .where(eq(tasks.id, taskId))
+        .returning();
+
+      console.log('[API] Task accepted:', {
+        taskId,
+        workerId: req.user.id,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(updatedTask);
+    } catch (error: any) {
+      console.error('[API] Task acceptance failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to accept task',
+        code: 'TASK_ACCEPT_ERROR'
+      });
+    }
+  });
+
   // Token and Payment Routes
   app.post('/api/tokens/calculate-price', (req: AuthRequest, res: Response) => {
     try {

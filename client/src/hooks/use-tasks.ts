@@ -74,9 +74,38 @@ export function useTasks() {
     },
   });
 
+  const acceptTaskMutation = useMutation({
+    mutationFn: async (taskId: number) => {
+      console.log('[Tasks] Accepting task:', taskId);
+      const response = await fetch(`/api/tasks/${taskId}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('[Tasks] Accept failed:', error);
+        throw new Error(error);
+      }
+
+      const data = await response.json();
+      console.log('[Tasks] Task accepted:', data);
+      return data;
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Success',
+        description: 'Task accepted successfully'
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+    },
+  });
+
   return {
     tasks,
     isLoading,
     createTask: createTaskMutation.mutateAsync,
+    acceptTask: acceptTaskMutation.mutateAsync,
   };
 }
