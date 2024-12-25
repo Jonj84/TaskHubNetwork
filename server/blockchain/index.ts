@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import { db } from "@db";
 import { tokens, users } from "@db/schema";
 import { sql, eq, count } from 'drizzle-orm';
+import { balanceTracker } from '../services/balanceTracker';
 
 class Block {
   public hash: string;
@@ -165,19 +166,13 @@ class Blockchain {
   async getBalance(address: string): Promise<number> {
     console.log('[Balance Check] Starting balance calculation for:', address);
     try {
-      const result = await db
-        .select({ count: count() })
-        .from(tokens)
-        .where(eq(tokens.owner, address));
-
-      const tokenCount = result[0].count;
+      const balance = await balanceTracker.getBalance(address);
       console.log('[Balance Check] Result:', { 
         address, 
-        queryResult: result,
-        calculatedBalance: tokenCount,
+        calculatedBalance: balance,
         timestamp: new Date().toISOString()
       });
-      return tokenCount;
+      return balance;
     } catch (error) {
       console.error('[Balance Check] Error calculating balance:', {
         address,
@@ -256,7 +251,7 @@ class Blockchain {
 
     // Check balance (except for system transactions)
     if (from !== 'SYSTEM') {
-      const balance = await this.getBalance(from);
+      const balance = await balanceTracker.getBalance(from);
       console.log('[Balance Check] Pre-transaction:', { 
         address: from, 
         currentBalance: balance, 
@@ -288,7 +283,7 @@ class Blockchain {
         }
       }));
 
-      // Insert base tokens with database transaction
+      // Insert tokens and update balance in a single transaction
       await db.transaction(async (tx) => {
         console.log('[Database] Starting token creation transaction');
 
@@ -320,32 +315,35 @@ class Blockchain {
           console.log('[Database] Created bonus tokens:', { count: bonusTokensToCreate.length });
         }
 
-        // Update user balance
-        const [updatedUser] = await tx
-          .update(users)
-          .set({
-            tokenBalance: sql`token_balance + ${amount + (metadata?.bonusTokens || 0)}`,
-            updated_at: new Date()
-          })
-          .where(eq(users.username, to))
-          .returning();
+        // Update balances for both parties
+        const totalTokens = amount + (metadata?.bonusTokens || 0);
 
-        console.log('[Database] Updated user balance:', {
-          username: to,
-          addedTokens: amount + (metadata?.bonusTokens || 0),
-          newBalance: updatedUser.tokenBalance
+        // Update recipient's balance
+        await balanceTracker.addTokens(to, totalTokens);
+
+        // Update sender's balance if not SYSTEM
+        if (from !== 'SYSTEM') {
+          await balanceTracker.addTokens(from, -amount);
+        }
+
+        console.log('[Transaction] Balances updated:', {
+          from,
+          to,
+          amount: totalTokens
         });
-
-        return { baseTokenIds, bonusTokenIds };
       });
 
-      console.log('[Transaction Complete] Successfully created tokens and updated balance');
+      // Verify final balances
+      await Promise.all([
+        balanceTracker.verifyBalance(to),
+        from !== 'SYSTEM' ? balanceTracker.verifyBalance(from) : Promise.resolve()
+      ]);
+
+      console.log('[Transaction Complete] Successfully created tokens and updated balances');
 
       return {
-        success: true,
-        baseTokens: baseTokenIds.length,
-        bonusTokens: metadata?.bonusTokens || 0,
-        totalTokens: baseTokenIds.length + (metadata?.bonusTokens || 0)
+        tokenIds: [...baseTokenIds, ...(metadata?.bonusTokens ? [...bonusTokenIds]: [])],
+        blockHash: 'pending',
       };
 
     } catch (error) {
@@ -400,22 +398,6 @@ export const blockchainService = {
   createTransaction: blockchain.createTransaction.bind(blockchain),
   getAllTransactions: () => blockchain.getAllTransactions(),
   getPendingTransactions: () => blockchain.getPendingTransactions(),
-  getBalance: async (address: string) => {
-    try {
-      const result = await db
-        .select({ count: count() })
-        .from(tokens)
-        .where(eq(tokens.owner, address));
-
-      return result[0].count;
-    } catch (error) {
-      console.error('[Balance Error] Failed to get balance:', {
-        error,
-        address,
-        timestamp: new Date().toISOString()
-      });
-      return 0;
-    }
-  },
+  getBalance: (address: string) => balanceTracker.getBalance(address),
   getTokenMetadata: (tokenId: string) => blockchain.getTokenMetadata(tokenId)
 };
