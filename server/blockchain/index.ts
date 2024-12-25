@@ -148,7 +148,7 @@ class Blockchain {
           throw new Error('Some tokens are not in escrow state');
         }
 
-        // Update token ownership and status
+        // Update token ownership and status - no bonus tokens on release
         const updateResult = await tx
           .update(tokens)
           .set({
@@ -170,7 +170,7 @@ class Blockchain {
           tokens: updateResult.map(t => ({ id: t.id, owner: t.owner, status: t.status }))
         });
 
-        // Create release transaction record
+        // Create release transaction record - no bonus tokens in metadata
         const [releaseTx] = await tx
           .insert(tokenTransactions)
           .values({
@@ -189,7 +189,7 @@ class Blockchain {
           })
           .returning();
 
-        // Add to chain
+        // Add to chain - using exact token count
         const chainTransaction: Transaction = {
           id: releaseTx.id.toString(),
           from: 'ESCROW',
@@ -229,7 +229,6 @@ class Blockchain {
       throw error;
     }
   }
-
   async createTransaction(
     from: string,
     to: string,
@@ -438,5 +437,5 @@ export const blockchainService = {
   getBalance: blockchain.getBalance.bind(blockchain),
   getTokens: blockchain.getTokens.bind(blockchain),
   releaseEscrow: blockchain.releaseEscrow.bind(blockchain),
-  getUserById: blockchain.getUserById.bind(blockchain) //added getUserById export
+  getUserById: blockchain.getUserById.bind(blockchain)
 } as const;
