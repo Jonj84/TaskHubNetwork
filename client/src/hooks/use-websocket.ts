@@ -2,12 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { type WebSocketStatus } from '@/lib/websocket/WebSocketService';
 import { useToast } from '@/hooks/use-toast';
 
-interface WebSocketService {
-  connect: () => void;
-  disconnect: () => void;
-  manualReconnect: () => void;
-}
-
 interface WebSocketConfig {
   url: string;
   onStatusChange?: (status: WebSocketStatus) => void;
@@ -17,11 +11,18 @@ interface WebSocketConfig {
   maxBackoff?: number;
 }
 
+interface WebSocketService {
+  connect: () => void;
+  disconnect: () => void;
+  manualReconnect: () => void;
+}
+
 let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
 let backoffDelay = 1000;
 let reconnectTimeout: NodeJS.Timeout | null = null;
 let lastMessageTime = 0;
+let heartbeatInterval: NodeJS.Timeout | null = null;
 
 function createWebSocketService(config: WebSocketConfig): WebSocketService {
   const {
@@ -40,14 +41,26 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
     }
 
     try {
+      console.log('[WebSocket] Attempting connection to:', url);
       ws = new WebSocket(url);
       backoffDelay = initialBackoff;
       lastMessageTime = Date.now();
+      onStatusChange('connecting');
 
       ws.onopen = () => {
         console.log('[WebSocket] Connected successfully');
         reconnectAttempt = 0;
         onStatusChange('connected');
+
+        // Start heartbeat after successful connection
+        if (heartbeatInterval) {
+          clearInterval(heartbeatInterval);
+        }
+        heartbeatInterval = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
       };
 
       ws.onmessage = (event) => {
@@ -71,6 +84,8 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
           wasClean: event.wasClean,
           timeSinceLastMessage: Date.now() - lastMessageTime
         });
+
+        cleanup();
         onStatusChange('disconnected');
 
         // Only attempt reconnect if we haven't reached the limit
@@ -100,24 +115,26 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
         onStatusChange('error');
       };
 
-      // Start heartbeat
-      setInterval(() => {
-        if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 30000);
-
     } catch (error) {
       console.error('[WebSocket] Setup error:', error);
+      cleanup();
       onStatusChange('error');
     }
   };
 
-  const disconnect = () => {
+  const cleanup = () => {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
     if (reconnectTimeout) {
       clearTimeout(reconnectTimeout);
       reconnectTimeout = null;
     }
+  };
+
+  const disconnect = () => {
+    cleanup();
 
     if (ws) {
       try {
@@ -148,6 +165,7 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
 export function useWebSocket(url: string) {
   const [status, setStatus] = useState<WebSocketStatus>('disconnected');
   const { toast } = useToast();
+
   const [service] = useState(() => 
     createWebSocketService({
       url,

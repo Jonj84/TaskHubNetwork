@@ -16,25 +16,33 @@ interface ClientConnection {
 }
 
 let wsServer: WebSocketServer | null = null;
+let wsManager: WebSocketManager | null = null;
 
 class WebSocketManager {
   private connections: Map<string, ClientConnection> = new Map();
   private pingInterval: NodeJS.Timeout;
-  private static readonly MAX_RECONNECT_ATTEMPTS = 5;
   private static readonly PING_INTERVAL = 30000; // 30 seconds
 
   constructor(server: Server) {
-    wsServer = new WebSocketServer({ 
-      noServer: true,
-      clientTracking: true
-    });
-    this.setupServer(server);
-    this.pingInterval = setInterval(() => this.checkConnections(), WebSocketManager.PING_INTERVAL);
-    log('[WebSocket] Manager initialized');
+    try {
+      log('[WebSocket] Initializing WebSocket server');
+      wsServer = new WebSocketServer({ 
+        noServer: true,
+        clientTracking: true
+      });
+
+      this.setupServer(server);
+      this.pingInterval = setInterval(() => this.checkConnections(), WebSocketManager.PING_INTERVAL);
+
+      log('[WebSocket] Manager initialized successfully');
+    } catch (error) {
+      log(`[WebSocket] Initialization error: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
   }
 
   private setupServer(server: Server) {
-    server.on('upgrade', async (request: Request, socket, head) => {
+    server.on('upgrade', (request: Request, socket, head) => {
       try {
         // Skip Vite HMR connections
         if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
@@ -47,13 +55,13 @@ class WebSocketManager {
           return;
         }
 
-        if (!wsServer) {
-          throw new Error('WebSocket server not initialized');
-        }
-
         // Extract session data if available
         const userId = (request as any).session?.passport?.user?.id;
         log(`[WebSocket] Upgrade request from user: ${userId || 'anonymous'}`);
+
+        if (!wsServer) {
+          throw new Error('WebSocket server not initialized');
+        }
 
         wsServer.handleUpgrade(request, socket, head, (ws) => {
           // Store userId in request for connection handler
@@ -70,8 +78,11 @@ class WebSocketManager {
       throw new Error('WebSocket server not initialized');
     }
 
-    wsServer.on('connection', (ws: WebSocket, request: Request) => 
-      this.handleConnection(ws, request));
+    wsServer.on('connection', (ws: WebSocket, request: Request) => {
+      this.handleConnection(ws, request).catch(error => {
+        log(`[WebSocket] Connection handler error: ${error.message}`);
+      });
+    });
   }
 
   private async handleConnection(ws: WebSocket, request: Request) {
@@ -80,13 +91,15 @@ class WebSocketManager {
 
     log(`[WebSocket] New connection: ${connectionId}${userId ? ` for user ${userId}` : ''}`);
 
-    this.connections.set(connectionId, {
+    const connection: ClientConnection = {
       ws,
       userId,
       lastPing: Date.now(),
       isAlive: true,
       connectionAttempts: 0
-    });
+    };
+
+    this.connections.set(connectionId, connection);
 
     ws.on('pong', () => this.handlePong(connectionId));
     ws.on('message', (data) => this.handleMessage(connectionId, data));
@@ -109,16 +122,6 @@ class WebSocketManager {
         });
       } catch (error) {
         log(`[WebSocket] Initial balance fetch error: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-
-  private sendMessage(ws: WebSocket, message: any) {
-    if (ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(JSON.stringify(message));
-      } catch (error) {
-        log(`[WebSocket] Send message error: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
@@ -177,6 +180,16 @@ class WebSocketManager {
     }
   }
 
+  private sendMessage(ws: WebSocket, message: any) {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(message));
+      } catch (error) {
+        log(`[WebSocket] Send message error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
   private handleClose(connectionId: string) {
     const connection = this.connections.get(connectionId);
     if (connection) {
@@ -230,15 +243,28 @@ class WebSocketManager {
   }
 }
 
-let wsManager: WebSocketManager | null = null;
-
 export function setupWebSocket(server: Server) {
-  if (!wsManager) {
-    wsManager = new WebSocketManager(server);
+  try {
+    log('[WebSocket] Setting up WebSocket server');
+    if (!wsManager) {
+      wsManager = new WebSocketManager(server);
+      log('[WebSocket] WebSocket manager created successfully');
+    }
+    return wsServer;
+  } catch (error) {
+    log(`[WebSocket] Setup failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
   }
-  return wsServer;
 }
 
 export function broadcastToUser(userId: string, type: string, data: any) {
-  wsManager?.broadcastToUser(userId, type, data);
+  try {
+    if (!wsManager) {
+      log('[WebSocket] Cannot broadcast: WebSocket manager not initialized');
+      return;
+    }
+    wsManager.broadcastToUser(userId, type, data);
+  } catch (error) {
+    log(`[WebSocket] Broadcast failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
