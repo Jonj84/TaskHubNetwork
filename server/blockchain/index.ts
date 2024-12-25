@@ -163,7 +163,7 @@ class Blockchain {
   }
 
   async getBalance(address: string): Promise<number> {
-    console.log('Calculating balance for address:', address);
+    console.log('[Balance Check] Starting balance calculation for:', address);
     try {
       const result = await db
         .select({ count: count() })
@@ -171,10 +171,19 @@ class Blockchain {
         .where(eq(tokens.owner, address));
 
       const tokenCount = result[0].count;
-      console.log('Calculated balance:', { address, balance: tokenCount });
+      console.log('[Balance Check] Result:', { 
+        address, 
+        queryResult: result,
+        calculatedBalance: tokenCount,
+        timestamp: new Date().toISOString()
+      });
       return tokenCount;
     } catch (error) {
-      console.error('Error getting balance:', error);
+      console.error('[Balance Check] Error calculating balance:', {
+        address,
+        error,
+        timestamp: new Date().toISOString()
+      });
       return 0;
     }
   }
@@ -184,6 +193,7 @@ class Blockchain {
   }
 
   async updateUserBalance(username: string): Promise<number> {
+    console.log('[Balance Update] Starting balance update for:', username);
     try {
       // Get token count using Drizzle ORM
       const result = await db
@@ -192,20 +202,37 @@ class Blockchain {
         .where(eq(tokens.owner, username));
 
       const tokenCount = result[0].count;
+      console.log('[Balance Update] Token count from database:', {
+        username,
+        tokenCount,
+        queryResult: result,
+        timestamp: new Date().toISOString()
+      });
 
       // Update user's token balance
-      await db
+      const [updatedUser] = await db
         .update(users)
         .set({
           tokenBalance: tokenCount,
           updated_at: new Date()
         })
-        .where(eq(users.username, username));
+        .where(eq(users.username, username))
+        .returning();
 
-      console.log('Updated user balance:', { username, newBalance: tokenCount });
+      console.log('[Balance Update] User balance updated:', {
+        username,
+        previousCount: tokenCount,
+        newBalance: updatedUser.tokenBalance,
+        timestamp: new Date().toISOString()
+      });
+
       return tokenCount;
     } catch (error) {
-      console.error('Error updating user balance:', error);
+      console.error('[Balance Update] Error updating user balance:', {
+        username,
+        error,
+        timestamp: new Date().toISOString()
+      });
       throw error;
     }
   }
