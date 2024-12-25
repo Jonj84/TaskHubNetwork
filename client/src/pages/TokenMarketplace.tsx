@@ -96,6 +96,36 @@ export default function TokenMarketplace() {
     setTokenAmount(clampedValue);
   };
 
+  const verifyPayment = async (sessionId: string, popup: Window) => {
+    try {
+      const response = await fetch(`/api/payment/verify/${sessionId}`);
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast({
+          title: 'Purchase Successful',
+          description: `${tokenAmount} tokens have been credited to your account.`,
+        });
+        // Refresh user data
+        queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+      } else {
+        throw new Error(data.message || 'Payment verification failed');
+      }
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Purchase Failed',
+        description: error.message || 'Failed to verify payment. Please try again.',
+      });
+    } finally {
+      // Always close popup and reset processing state
+      if (!popup.closed) {
+        popup.close();
+      }
+      setIsProcessing(false);
+    }
+  };
+
   const handlePurchase = async () => {
     try {
       setIsProcessing(true);
@@ -118,10 +148,10 @@ export default function TokenMarketplace() {
         throw new Error(errorText);
       }
 
-      const { checkoutUrl } = await response.json();
+      const { checkoutUrl, sessionId } = await response.json();
 
-      if (!checkoutUrl) {
-        throw new Error('No checkout URL received from server');
+      if (!checkoutUrl || !sessionId) {
+        throw new Error('Invalid response from server');
       }
 
       // Open in a popup window
@@ -140,21 +170,13 @@ export default function TokenMarketplace() {
         throw new Error('Popup was blocked. Please allow popups and try again.');
       }
 
-      // Monitor popup status and handle closure
-      const checkPopup = setInterval(() => {
-        if (!popup || popup.closed) {
-          clearInterval(checkPopup);
-          setIsProcessing(false);
-
-          // Refresh user data when popup closes
-          queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-
-          toast({
-            title: 'Purchase Complete',
-            description: 'Your tokens will be credited to your account shortly.',
-          });
+      // Start payment verification process
+      const checkPayment = setInterval(async () => {
+        if (popup.closed) {
+          clearInterval(checkPayment);
+          await verifyPayment(sessionId, popup);
         }
-      }, 500);
+      }, 1000);
 
       toast({
         title: 'Checkout Started',
@@ -170,13 +192,11 @@ export default function TokenMarketplace() {
         title: 'Purchase Failed',
         description: error.message || 'Failed to process payment. Please try again.',
       });
-    } finally {
       setIsProcessing(false);
     }
   };
 
   const isValidAmount = (amount: number) => amount >= 1 && amount <= 10000;
-
 
   return (
     <div className="container mx-auto py-8 px-4">
