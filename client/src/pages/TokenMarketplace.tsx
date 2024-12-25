@@ -188,9 +188,7 @@ export default function TokenMarketplace() {
       // Start payment verification process
       checkInterval = setInterval(() => {
         if (popup?.closed) {
-          if (checkInterval) {
-            clearInterval(checkInterval);
-          }
+          clearInterval(checkInterval);
           verifyPayment(sessionId, popup);
           setIsProcessing(false);
         }
