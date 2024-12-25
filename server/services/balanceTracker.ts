@@ -7,9 +7,10 @@ import { broadcastToUser } from '../ws';
 const balanceCache = new Map<string, {
   balance: number;
   timestamp: number;
+  transactionCount: number; // Track number of transactions for cache invalidation
 }>();
 
-const CACHE_TTL = 30000; // 30 seconds
+const CACHE_TTL = 15000; // 15 seconds - reduced for more frequent updates
 
 export class BalanceTracker {
   private static instance: BalanceTracker;
@@ -39,20 +40,31 @@ export class BalanceTracker {
     try {
       console.log('[BalanceTracker] Starting balance calculation for:', username);
 
-      // Check cache first
+      // Get transaction count for cache validation
+      const txCountResult = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(tokenTransactions)
+        .where(eq(tokenTransactions.toAddress, username));
+
+      const currentTxCount = Number(txCountResult[0]?.count || 0);
+
+      // Check cache
       const cached = balanceCache.get(username);
       const now = Date.now();
 
-      if (cached && (now - cached.timestamp < CACHE_TTL)) {
+      if (cached && 
+          (now - cached.timestamp < CACHE_TTL) && 
+          cached.transactionCount === currentTxCount) {
         console.log('[BalanceTracker] Cache hit:', {
           username,
           balance: cached.balance,
-          age: `${(now - cached.timestamp) / 1000}s`
+          age: `${(now - cached.timestamp) / 1000}s`,
+          txCount: currentTxCount
         });
         return cached.balance;
       }
 
-      // Get active tokens count with a more specific query
+      // Calculate active tokens
       const result = await db
         .select({
           activeTokens: sql<number>`COUNT(DISTINCT ${tokens.id})`
@@ -67,20 +79,26 @@ export class BalanceTracker {
 
       const balance = Number(result[0]?.activeTokens || 0);
 
-      // Cache the result
+      // Update cache with transaction count
       balanceCache.set(username, {
         balance,
-        timestamp: now
+        timestamp: now,
+        transactionCount: currentTxCount
       });
 
       console.log('[BalanceTracker] Calculation complete:', {
         username,
         balance,
+        txCount: currentTxCount,
         timestamp: new Date().toISOString()
       });
 
-      // Notify via WebSocket
-      broadcastToUser(username, 'balance_update', { balance });
+      // Broadcast update
+      broadcastToUser(username, 'balance_update', { 
+        balance,
+        timestamp: now,
+        transactionCount: currentTxCount
+      });
 
       return balance;
     } catch (error) {
@@ -98,7 +116,7 @@ export class BalanceTracker {
       console.log('[BalanceTracker] Force syncing balance for:', username);
 
       // Invalidate cache
-      this.invalidateCache(username);
+      balanceCache.delete(username);
 
       // Calculate actual balance from tokens
       const actualBalance = await this.getBalance(username);
@@ -123,7 +141,8 @@ export class BalanceTracker {
       // Ensure WebSocket clients are notified with sync status
       broadcastToUser(username, 'balance_update', { 
         balance: actualBalance,
-        synced: true
+        synced: true,
+        timestamp: Date.now()
       });
 
       return updatedUser;

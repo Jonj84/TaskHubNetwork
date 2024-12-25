@@ -3,6 +3,7 @@ import type { Transaction, Token, TransactionResult } from '../../client/src/lib
 import { db } from "@db";
 import { tokens, users, tokenTransactions } from "@db/schema";
 import { sql, eq, and } from 'drizzle-orm';
+import { balanceTracker } from '../services/balanceTracker';
 
 class Blockchain {
   private chain: Transaction[];
@@ -43,7 +44,7 @@ class Blockchain {
         type: tx.type as 'transfer' | 'mint',
         tokenIds: tx.tokenIds || [],
         metadata: {
-          paymentId: tx.paymentId,
+          paymentId: tx.paymentId || undefined,
           price: tx.metadata?.totalPrice,
           pricePerToken: tx.metadata?.pricePerToken
         }
@@ -77,8 +78,10 @@ class Blockchain {
         id: token.id,
         status: token.status,
         metadata: {
-          ...token.metadata,
-          mintedInBlock: token.mintedInBlock
+          mintedInBlock: token.mintedInBlock,
+          createdAt: token.metadata?.createdAt || new Date(),
+          previousTransfers: token.metadata?.previousTransfers || [],
+          purchaseInfo: token.metadata?.purchaseInfo
         },
         creator: token.creator,
         owner: token.owner,
@@ -168,7 +171,7 @@ class Blockchain {
 
         // Create tokens
         const insertedTokens = await tx.insert(tokens).values(
-          tokenIds.map((id, index) => ({
+          tokenIds.map(id => ({
             id,
             creator: from,
             owner: to,
@@ -179,9 +182,9 @@ class Blockchain {
               previousTransfers: [],
               purchaseInfo: {
                 paymentId: metadata?.paymentId,
-                price: index < amount ? metadata?.pricePerToken || 1 : 0,
+                price: metadata?.pricePerToken || 1,
                 purchaseDate: new Date(),
-                reason: index < amount ? 'purchase' : 'bonus'
+                reason: 'purchase'
               }
             }
           }))
@@ -223,6 +226,18 @@ class Blockchain {
         };
 
         this.chain.push(chainTransaction);
+
+        // After successful transaction, immediately invalidate balance cache
+        balanceTracker.invalidateCache(to);
+        if (from !== 'SYSTEM') {
+          balanceTracker.invalidateCache(from);
+        }
+
+        // Force sync balances to ensure accuracy
+        await balanceTracker.forceSyncBalance(to);
+        if (from !== 'SYSTEM') {
+          await balanceTracker.forceSyncBalance(from);
+        }
 
         console.log('[Blockchain] Transaction completed:', {
           transactionId: transaction.id,
