@@ -322,7 +322,10 @@ async function processTokenGeneration(queueId: number) {
       // Update queue status to processing
       await tx
         .update(tokenProcessingQueue)
-        .set({ status: 'processing', updated_at: new Date() })
+        .set({
+          status: 'processing',
+          updated_at: new Date()
+        })
         .where(eq(tokenProcessingQueue.id, queueId));
 
       try {
@@ -337,7 +340,7 @@ async function processTokenGeneration(queueId: number) {
           throw new Error('User not found');
         }
 
-        // Calculate bonus tokens -  This function needs to be defined elsewhere
+        // Calculate bonus tokens
         const priceInfo = calculatePrice(queueEntry.amount);
 
         // Generate blockchain transaction which will generate tokens with metadata
@@ -351,20 +354,6 @@ async function processTokenGeneration(queueId: number) {
             bonusTokens: priceInfo.bonusTokens
           }
         );
-
-        // Update user's token balance based on actual token count
-        const tokenCount = await db.query.tokens.count({
-          where: (tokens, { eq }) => eq(tokens.owner, user.username)
-        });
-
-        const [updatedUser] = await tx
-          .update(users)
-          .set({
-            tokenBalance: tokenCount + (priceInfo.bonusTokens || 0), // Added bonus tokens to balance
-            updated_at: new Date()
-          })
-          .where(eq(users.id, user.id))
-          .returning();
 
         // Record the transaction with blockchain data
         await tx
@@ -396,6 +385,13 @@ async function processTokenGeneration(queueId: number) {
             updated_at: new Date()
           })
           .where(eq(tokenProcessingQueue.id, queueId));
+
+        // Get the updated user with new balance
+        const [updatedUser] = await tx
+          .select()
+          .from(users)
+          .where(eq(users.id, user.id))
+          .limit(1);
 
         return {
           success: true,

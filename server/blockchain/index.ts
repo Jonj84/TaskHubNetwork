@@ -2,7 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Transaction, Token, TransactionResult, TokenMetadata } from '../../client/src/lib/blockchain/types';
 import { createHash } from 'crypto';
 import { db } from "@db";
-import { tokens } from "@db/schema";
+import { tokens, users } from "@db/schema";
+import { sql, eq } from 'drizzle-orm';
 
 class Block {
   public hash: string;
@@ -149,6 +150,31 @@ class Blockchain {
     return this.tokenRegistry.get(tokenId);
   }
 
+  async updateUserBalance(username: string): Promise<number> {
+    try {
+      // Get token count from database
+      const result = await db.execute(
+        sql`SELECT COUNT(*) as count FROM tokens WHERE owner = ${username}`
+      );
+      const tokenCount = Number(result[0].count);
+
+      // Update user's token balance in the database
+      await db
+        .update(users)
+        .set({
+          tokenBalance: tokenCount,
+          updated_at: new Date()
+        })
+        .where(eq(users.username, username));
+
+      console.log('Updated user balance:', { username, newBalance: tokenCount });
+      return tokenCount;
+    } catch (error) {
+      console.error('Error updating user balance:', error);
+      throw error;
+    }
+  }
+
   async createTransaction(from: string, to: string, amount: number, metadata?: { paymentId?: string; price?: number; bonusTokens?: number }): Promise<TransactionResult> {
     console.log('Creating transaction:', { from, to, amount, metadata });
 
@@ -193,8 +219,8 @@ class Blockchain {
       throw new Error('Failed to mine block');
     }
 
-    // Create tokens in database
     try {
+      // Create tokens in database
       const tokensToCreate = tokenIds.map(tokenId => ({
         id: tokenId,
         creator: from,
@@ -253,6 +279,12 @@ class Blockchain {
         this.tokenRegistry.set(token.id, token as Token);
         console.log('Added token to registry:', { id: token.id, owner: token.owner });
       });
+
+      // Update user balance after all tokens are created
+      await this.updateUserBalance(to);
+      if (from !== 'SYSTEM') {
+        await this.updateUserBalance(from);
+      }
 
     } catch (error) {
       console.error('Error creating tokens in database:', error);
