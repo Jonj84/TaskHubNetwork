@@ -67,9 +67,7 @@ export function useTasks() {
         title: 'Success',
         description: 'Task created successfully'
       });
-      // Force refetch tasks after creation
       queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
-      // Also invalidate blockchain queries as task creation affects token balance
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain'] });
     },
   });
@@ -102,10 +100,71 @@ export function useTasks() {
     },
   });
 
+  const submitProofMutation = useMutation({
+    mutationFn: async ({ taskId, proof }: { taskId: number; proof: string }) => {
+      console.log('[Tasks] Submitting proof:', { taskId, proof });
+      const response = await fetch(`/api/tasks/${taskId}/proof`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ proof }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('[Tasks] Proof submission failed:', error);
+        throw new Error(error);
+      }
+
+      const data = await response.json();
+      console.log('[Tasks] Proof submitted:', data);
+      return data;
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Success',
+        description: 'Proof submitted successfully'
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+    },
+  });
+
+  const verifyTaskMutation = useMutation({
+    mutationFn: async ({ taskId, verified }: { taskId: number; verified: boolean }) => {
+      console.log('[Tasks] Verifying task:', { taskId, verified });
+      const response = await fetch(`/api/tasks/${taskId}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ verified }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('[Tasks] Verification failed:', error);
+        throw new Error(error);
+      }
+
+      const data = await response.json();
+      console.log('[Tasks] Task verified:', data);
+      return data;
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Success',
+        description: 'Task verification successful'
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/blockchain'] });
+    },
+  });
+
   return {
     tasks,
     isLoading,
     createTask: createTaskMutation.mutateAsync,
     acceptTask: acceptTaskMutation.mutateAsync,
+    submitProof: submitProofMutation.mutateAsync,
+    verifyTask: verifyTaskMutation.mutateAsync,
   };
 }

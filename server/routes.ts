@@ -437,5 +437,163 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add proof submission endpoint
+  app.post('/api/tasks/:taskId/proof', async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const taskId = parseInt(req.params.taskId);
+      const { proof } = req.body;
+
+      if (isNaN(taskId) || !proof) {
+        return res.status(400).json({
+          message: 'Invalid task ID or missing proof',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      // Get the task and verify the user can submit proof
+      const [task] = await db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .limit(1);
+
+      if (!task) {
+        return res.status(404).json({
+          message: 'Task not found',
+          code: 'TASK_NOT_FOUND'
+        });
+      }
+
+      if (task.workerId !== req.user.id) {
+        return res.status(403).json({
+          message: 'Only the assigned worker can submit proof',
+          code: 'UNAUTHORIZED'
+        });
+      }
+
+      if (task.status !== 'in_progress') {
+        return res.status(400).json({
+          message: 'Task is not in progress',
+          code: 'INVALID_STATUS'
+        });
+      }
+
+      // Update task with proof and change status
+      const [updatedTask] = await db
+        .update(tasks)
+        .set({
+          status: 'pending_verification',
+          proofSubmitted: proof,
+          updated_at: new Date()
+        })
+        .where(eq(tasks.id, taskId))
+        .returning();
+
+      console.log('[API] Proof submitted:', {
+        taskId,
+        workerId: req.user.id,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(updatedTask);
+    } catch (error: any) {
+      console.error('[API] Proof submission failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to submit proof',
+        code: 'PROOF_SUBMISSION_ERROR'
+      });
+    }
+  });
+
+  // Add task verification endpoint
+  app.post('/api/tasks/:taskId/verify', async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const taskId = parseInt(req.params.taskId);
+      const { verified } = req.body;
+
+      if (isNaN(taskId) || verified === undefined) {
+        return res.status(400).json({
+          message: 'Invalid parameters',
+          code: 'INVALID_PARAMETERS'
+        });
+      }
+
+      // Get the task and verify the user can verify it
+      const [task] = await db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .limit(1);
+
+      if (!task) {
+        return res.status(404).json({
+          message: 'Task not found',
+          code: 'TASK_NOT_FOUND'
+        });
+      }
+
+      if (task.creatorId !== req.user.id) {
+        return res.status(403).json({
+          message: 'Only the task creator can verify completion',
+          code: 'UNAUTHORIZED'
+        });
+      }
+
+      if (task.status !== 'pending_verification') {
+        return res.status(400).json({
+          message: 'Task is not pending verification',
+          code: 'INVALID_STATUS'
+        });
+      }
+
+      // Update task status based on verification
+      const [updatedTask] = await db
+        .update(tasks)
+        .set({
+          status: verified ? 'completed' : 'in_progress',
+          proofSubmitted: verified ? task.proofSubmitted : null,
+          updated_at: new Date()
+        })
+        .where(eq(tasks.id, taskId))
+        .returning();
+
+      // If task is completed, release escrow
+      if (verified && task.escrowTransactionId) {
+        await blockchainService.releaseEscrow(
+          task.escrowTransactionId,
+          task.workerId!.toString()
+        );
+      }
+
+      console.log('[API] Task verification:', {
+        taskId,
+        verified,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(updatedTask);
+    } catch (error: any) {
+      console.error('[API] Task verification failed:', error);
+      res.status(500).json({
+        message: error.message || 'Failed to verify task',
+        code: 'VERIFICATION_ERROR'
+      });
+    }
+  });
+
   return httpServer;
 }
