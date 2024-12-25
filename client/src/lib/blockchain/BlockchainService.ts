@@ -1,5 +1,5 @@
 import { Blockchain } from './Blockchain';
-import { Transaction } from './Block';
+import { Transaction, Token } from './types';
 import { WebSocket } from 'ws';
 
 class BlockchainService {
@@ -17,23 +17,29 @@ class BlockchainService {
     // Mine pending transactions every 10 seconds
     this.miningInterval = setInterval(() => {
       if (this.blockchain.getPendingTransactions().length > 0) {
-        // Using a network address for mining rewards
-        this.blockchain.minePendingTransactions("network");
-        this.broadcastChain();
+        const block = this.blockchain.minePendingTransactions("network");
+        if (block) {
+          this.broadcastChain();
+        }
       }
     }, 10000);
   }
 
   createTransaction(from: string, to: string, amount: number): void {
-    const transaction: Transaction = {
-      from,
-      to,
-      amount,
-      timestamp: Date.now(),
-    };
-
     try {
-      this.blockchain.addTransaction(transaction);
+      const result = this.blockchain.createTransaction(from, to, amount);
+
+      const transaction: Transaction = {
+        id: result.id,
+        from,
+        to,
+        amount,
+        timestamp: Date.now(),
+        type: from === 'SYSTEM' ? 'mint' : 'transfer',
+        tokenIds: result.tokenIds,
+        blockHash: result.blockHash,
+      };
+
       this.broadcastTransaction(transaction);
     } catch (error) {
       throw error;
@@ -45,11 +51,18 @@ class BlockchainService {
   }
 
   getAllTransactions(): Transaction[] {
-    return this.blockchain.getAllTransactions();
+    return this.blockchain.getAllTransactions().map(tx => ({
+      ...tx,
+      blockHash: this.blockchain.getBlockHashForTransaction(tx.id),
+    }));
   }
 
   getPendingTransactions(): Transaction[] {
     return this.blockchain.getPendingTransactions();
+  }
+
+  getTokenMetadata(tokenId: string): Token | undefined {
+    return this.blockchain.getTokenMetadata(tokenId);
   }
 
   addPeer(peer: WebSocket): void {
@@ -95,3 +108,4 @@ class BlockchainService {
 
 // Export a singleton instance
 export const blockchainService = new BlockchainService();
+export type { Transaction, Token };

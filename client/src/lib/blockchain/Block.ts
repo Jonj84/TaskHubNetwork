@@ -1,22 +1,18 @@
 import CryptoJS from 'crypto-js';
-
-export interface Transaction {
-  from: string;
-  to: string;
-  amount: number;
-  timestamp: number;
-  signature?: string;
-}
+import { Transaction, BlockMetadata } from './types';
 
 export class Block {
   public hash: string;
+  private tokens: Map<string, string>; // tokenId -> ownerAddress
 
   constructor(
     public timestamp: number,
     public transactions: Transaction[],
     public previousHash: string,
-    public nonce: number = 0
+    public nonce: number = 0,
+    public difficulty: number = 4
   ) {
+    this.tokens = new Map();
     this.hash = this.calculateHash();
   }
 
@@ -29,30 +25,45 @@ export class Block {
     ).toString();
   }
 
-  mineBlock(difficulty: number): void {
-    while (
-      this.hash.substring(0, difficulty) !== Array(difficulty + 1).join("0")
-    ) {
+  mineBlock(): void {
+    const target = Array(this.difficulty + 1).join("0");
+    while (this.hash.substring(0, this.difficulty) !== target) {
       this.nonce++;
       this.hash = this.calculateHash();
     }
+
+    console.log('Block mined:', this.hash);
+  }
+
+  addToken(tokenId: string, ownerAddress: string): void {
+    this.tokens.set(tokenId, ownerAddress);
+  }
+
+  getTokenOwner(tokenId: string): string | undefined {
+    return this.tokens.get(tokenId);
+  }
+
+  getAllTokens(): Array<[string, string]> {
+    return Array.from(this.tokens.entries());
   }
 
   hasValidTransactions(): boolean {
-    for (const tx of this.transactions) {
-      if (!this.verifyTransaction(tx)) {
-        return false;
-      }
-    }
-    return true;
+    return this.transactions.every(tx => this.verifyTransaction(tx));
+  }
+
+  getMetadata(): BlockMetadata {
+    return {
+      hash: this.hash,
+      previousHash: this.previousHash,
+      timestamp: this.timestamp,
+      nonce: this.nonce,
+      difficulty: this.difficulty
+    };
   }
 
   private verifyTransaction(transaction: Transaction): boolean {
-    if (!transaction.signature) {
-      return false;
-    }
-
-    // Simple validation for now - we'll add proper signature verification later
+    // For now, we'll consider all transactions valid
+    // In a real implementation, we would verify signatures here
     return true;
   }
 }

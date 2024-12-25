@@ -1,117 +1,180 @@
-import { Block, Transaction } from './Block';
+import { Block } from './Block';
+import { Transaction, Token, TransactionResult } from './types';
+import crypto from 'crypto';
 
 export class Blockchain {
   private chain: Block[];
   private difficulty: number;
   private pendingTransactions: Transaction[];
-  private miningReward: number;
+  private tokenRegistry: Map<string, Token>;
+  private readonly maxSupply: number;
 
   constructor() {
     this.chain = [this.createGenesisBlock()];
-    this.difficulty = 2;
+    this.difficulty = 4;
     this.pendingTransactions = [];
-    this.miningReward = 10;
+    this.tokenRegistry = new Map();
+    this.maxSupply = 1000000; // Maximum token supply
   }
 
   private createGenesisBlock(): Block {
-    return new Block(Date.now(), [], "0");
+    const genesisBlock = new Block(Date.now(), [], "0");
+    const genesisTokenId = crypto.randomUUID();
+
+    // Create genesis token
+    const genesisToken: Token = {
+      id: genesisTokenId,
+      creator: 'SYSTEM',
+      owner: 'GENESIS',
+      metadata: {
+        createdAt: new Date(),
+        mintedInBlock: genesisBlock.hash,
+        previousTransfers: []
+      }
+    };
+
+    this.tokenRegistry.set(genesisTokenId, genesisToken);
+    genesisBlock.addToken(genesisTokenId, 'GENESIS');
+    genesisBlock.mineBlock();
+
+    return genesisBlock;
   }
 
   getLatestBlock(): Block {
     return this.chain[this.chain.length - 1];
   }
 
-  minePendingTransactions(miningRewardAddress: string): void {
-    // Create mining reward transaction
-    const rewardTx: Transaction = {
-      from: "network",
-      to: miningRewardAddress,
-      amount: this.miningReward,
-      timestamp: Date.now(),
-    };
+  getBlockByHash(hash: string): Block | undefined {
+    return this.chain.find(block => block.hash === hash);
+  }
 
-    this.pendingTransactions.push(rewardTx);
+  getBlockHashForTransaction(transactionId: string): string | undefined {
+    for (const block of this.chain) {
+      if (block.transactions.some(tx => tx.id === transactionId)) {
+        return block.hash;
+      }
+    }
+    return undefined;
+  }
 
-    // Create new block with all pending transactions
+  minePendingTransactions(minerAddress: string): Block | undefined {
+    if (this.tokenRegistry.size >= this.maxSupply) {
+      console.log('Maximum token supply reached');
+      return undefined;
+    }
+
     const block = new Block(
       Date.now(),
       this.pendingTransactions,
-      this.getLatestBlock().hash
+      this.getLatestBlock().hash,
+      0,
+      this.difficulty
     );
 
-    // Mine the block
-    block.mineBlock(this.difficulty);
+    // Create mining reward token
+    const rewardTokenId = crypto.randomUUID();
+    const rewardToken: Token = {
+      id: rewardTokenId,
+      creator: 'SYSTEM',
+      owner: minerAddress,
+      metadata: {
+        createdAt: new Date(),
+        mintedInBlock: block.hash,
+        previousTransfers: []
+      }
+    };
 
-    // Add block to chain
+    // Add token to registry and block
+    this.tokenRegistry.set(rewardTokenId, rewardToken);
+    block.addToken(rewardTokenId, minerAddress);
+
+    // Create reward transaction
+    const rewardTx: Transaction = {
+      id: crypto.randomUUID(),
+      from: 'SYSTEM',
+      to: minerAddress,
+      amount: 1,
+      timestamp: Date.now(),
+      type: 'mint',
+      tokenIds: [rewardTokenId]
+    };
+
+    block.transactions.push(rewardTx);
+    block.mineBlock();
+
     this.chain.push(block);
-
-    // Reset pending transactions, except new ones that may have come in during mining
     this.pendingTransactions = [];
+
+    return block;
   }
 
-  addTransaction(transaction: Transaction): void {
-    if (!transaction.from || !transaction.to) {
+  createTransaction(from: string, to: string, amount: number): TransactionResult {
+    if (!from || !to) {
       throw new Error('Transaction must include from and to addresses');
     }
 
-    if (transaction.amount <= 0) {
+    if (amount <= 0) {
       throw new Error('Transaction amount must be positive');
     }
 
-    const balance = this.getBalanceOfAddress(transaction.from);
-    if (balance < transaction.amount) {
-      throw new Error('Not enough balance');
+    // Check balance (except for system transactions)
+    if (from !== 'SYSTEM') {
+      const balance = this.getBalanceOfAddress(from);
+      if (balance < amount) {
+        throw new Error(`Insufficient balance: ${balance} < ${amount}`);
+      }
     }
 
+    // Generate unique IDs for tokens being transferred
+    const tokenIds = Array.from({ length: amount }, () => crypto.randomUUID());
+
+    const transaction: Transaction = {
+      id: crypto.randomUUID(),
+      from,
+      to,
+      amount,
+      timestamp: Date.now(),
+      type: from === 'SYSTEM' ? 'mint' : 'transfer',
+      tokenIds
+    };
+
+    // Add transaction to pending
     this.pendingTransactions.push(transaction);
+
+    // Mine block immediately for simplicity
+    const block = this.minePendingTransactions(to);
+    if (!block) {
+      throw new Error('Failed to mine block');
+    }
+
+    // Update token ownership
+    tokenIds.forEach(tokenId => {
+      const token = this.tokenRegistry.get(tokenId);
+      if (token) {
+        token.owner = to;
+        token.metadata.previousTransfers.push(transaction.id);
+      }
+    });
+
+    return {
+      id: transaction.id,
+      tokenIds,
+      blockHash: block.hash
+    };
   }
 
   getBalanceOfAddress(address: string): number {
-    let balance = 0;
-
-    for (const block of this.chain) {
-      for (const trans of block.transactions) {
-        if (trans.from === address) {
-          balance -= trans.amount;
-        }
-        if (trans.to === address) {
-          balance += trans.amount;
-        }
-      }
-    }
-
-    return balance;
+    return Array.from(this.tokenRegistry.values())
+      .filter(token => token.owner === address)
+      .length;
   }
 
-  isChainValid(): boolean {
-    for (let i = 1; i < this.chain.length; i++) {
-      const currentBlock = this.chain[i];
-      const previousBlock = this.chain[i - 1];
-
-      // Verify block's hash
-      if (currentBlock.hash !== currentBlock.calculateHash()) {
-        return false;
-      }
-
-      // Verify block chain
-      if (currentBlock.previousHash !== previousBlock.hash) {
-        return false;
-      }
-
-      // Verify transactions in block
-      if (!currentBlock.hasValidTransactions()) {
-        return false;
-      }
-    }
-    return true;
+  getTokenMetadata(tokenId: string): Token | undefined {
+    return this.tokenRegistry.get(tokenId);
   }
 
   getAllTransactions(): Transaction[] {
-    const transactions: Transaction[] = [];
-    for (const block of this.chain) {
-      transactions.push(...block.transactions);
-    }
-    return transactions;
+    return this.chain.reduce((acc, block) => [...acc, ...block.transactions], [] as Transaction[]);
   }
 
   getPendingTransactions(): Transaction[] {

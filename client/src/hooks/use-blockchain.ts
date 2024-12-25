@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Transaction } from '../lib/blockchain/Block';
+import { Transaction } from '../lib/blockchain/BlockchainService';
 import { blockchainService } from '../lib/blockchain/BlockchainService';
 import { useToast } from './use-toast';
 import { useUser } from './use-user';
@@ -24,7 +24,7 @@ export function useBlockchain() {
   const createTransactionMutation = useMutation({
     mutationFn: async ({ to, amount }: { to: string; amount: number }) => {
       if (!user) throw new Error("Must be logged in");
-      
+
       try {
         blockchainService.createTransaction(
           user.username, // Using username as the wallet address for now
