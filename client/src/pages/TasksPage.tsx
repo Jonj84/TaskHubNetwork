@@ -92,10 +92,18 @@ export default function TasksPage() {
     }
   };
 
+  // Filter tasks into two categories
+  const availableTasks = tasks.filter(
+    (task) => task.status === 'open' && task.creatorId !== user?.id
+  );
+  const myCreatedTasks = tasks.filter(
+    (task) => task.creatorId === user?.id
+  );
+
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="container mx-auto py-6 space-y-8">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Available Tasks</h1>
+        <h1 className="text-2xl font-bold">Task Platform</h1>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>Create New Task</Button>
@@ -219,12 +227,34 @@ export default function TasksPage() {
         </Dialog>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {tasks
-          .filter((task) => task.status === 'open' && task.creatorId !== user?.id)
-          .map((task) => (
+      {/* Available Tasks Section */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Available Tasks</h2>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {availableTasks.map((task) => (
             <TaskCard key={task.id} task={task} />
           ))}
+          {availableTasks.length === 0 && (
+            <p className="text-muted-foreground col-span-full text-center py-4">
+              No tasks available at the moment.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* My Created Tasks Section */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">My Created Tasks</h2>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {myCreatedTasks.map((task) => (
+            <TaskCard key={task.id} task={task} />
+          ))}
+          {myCreatedTasks.length === 0 && (
+            <p className="text-muted-foreground col-span-full text-center py-4">
+              You haven't created any tasks yet.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
