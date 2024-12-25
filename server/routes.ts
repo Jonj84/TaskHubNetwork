@@ -2,6 +2,9 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import express from "express";
 import { createStripeSession, handleStripeWebhook, verifyStripePayment } from "./payments";
+import { db } from "@db";
+import { tokenTransactions } from "@db/schema";
+import { eq } from "drizzle-orm";
 
 // Pricing tiers configuration
 const PRICING_TIERS = {
@@ -124,6 +127,45 @@ export function registerRoutes(app: Express): Server {
       res.status(500).json({
         message: 'Failed to calculate price',
         error: errorLog
+      });
+    }
+  });
+
+  // Token transaction history endpoint
+  app.get("/api/tokens/history", async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      // Fetch user's token transactions
+      const transactions = await db.query.tokenTransactions.findMany({
+        where: eq(tokenTransactions.userId, req.user.id),
+        orderBy: (tokenTransactions, { desc }) => [desc(tokenTransactions.timestamp)],
+      });
+
+      // Calculate insights
+      const totalSpent = transactions.reduce((sum, tx) =>
+        tx.type === 'purchase' ? sum + tx.amount : sum, 0);
+
+      const purchaseTransactions = transactions.filter(tx => tx.type === 'purchase');
+      const avgPurchaseSize = purchaseTransactions.length > 0
+        ? Math.round(totalSpent / purchaseTransactions.length)
+        : 0;
+
+      res.json({
+        transactions,
+        insights: {
+          totalSpent,
+          totalTransactions: purchaseTransactions.length,
+          avgPurchaseSize
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to fetch token history:', error);
+      res.status(500).json({
+        message: 'Failed to fetch transaction history',
+        error: error.message
       });
     }
   });

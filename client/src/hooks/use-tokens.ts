@@ -5,19 +5,29 @@ export interface TokenTransaction {
   id: number;
   amount: number;
   type: 'purchase' | 'spend' | 'reward';
+  status: 'pending' | 'completed' | 'failed';
   timestamp: string;
 }
 
-interface PurchaseResponse {
-  message: string;
-  newBalance: number;
+interface TokenHistory {
+  transactions: TokenTransaction[];
+  insights: {
+    totalSpent: number;
+    totalTransactions: number;
+    avgPurchaseSize: number;
+  };
 }
 
 export function useTokens() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const purchaseTokensMutation = useMutation<PurchaseResponse, Error, number>({
+  const { data: history, isLoading } = useQuery<TokenHistory>({
+    queryKey: ['/api/tokens/history'],
+    staleTime: 30000, // Consider data fresh for 30 seconds
+  });
+
+  const purchaseTokensMutation = useMutation<any, Error, number>({
     mutationFn: async (amount: number) => {
       // Validate amount before making the request
       if (!amount || isNaN(amount) || amount < 1 || amount > 10000) {
@@ -37,12 +47,9 @@ export function useTokens() {
 
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-      toast({
-        title: 'Success',
-        description: `Successfully purchased tokens. New balance: ${data.newBalance}`,
-      });
+      queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] });
     },
     onError: (error: Error) => {
       toast({
@@ -53,13 +60,8 @@ export function useTokens() {
     }
   });
 
-  const { data: transactions, isLoading } = useQuery<TokenTransaction[]>({
-    queryKey: ['/api/tokens/history'],
-    staleTime: 30000, // Consider data fresh for 30 seconds
-  });
-
   return {
-    transactions,
+    history,
     isLoading,
     purchaseTokens: purchaseTokensMutation.mutateAsync,
   };

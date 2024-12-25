@@ -19,13 +19,11 @@ import { format } from 'date-fns';
 
 export default function WalletPage() {
   const { user } = useUser();
-  const { transactions, createTransaction, getBalance, isLoading } = useBlockchain();
+  const { transactions, createTransaction, isLoading } = useBlockchain();
   const [amount, setAmount] = useState(0);
   const [recipient, setRecipient] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-
-  const balance = user ? getBalance(user.username) : 0;
 
   const handleTransaction = async () => {
     if (!user) {
@@ -64,7 +62,7 @@ export default function WalletPage() {
             <CardTitle>Token Balance</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{balance}</p>
+            <p className="text-3xl font-bold">{user?.tokenBalance || 0}</p>
           </CardContent>
         </Card>
 
@@ -103,7 +101,7 @@ export default function WalletPage() {
             <Button 
               onClick={handleTransaction} 
               className="w-full"
-              disabled={isProcessing || amount <= 0 || !recipient}
+              disabled={isProcessing || amount <= 0 || !recipient || !user}
             >
               {isProcessing ? (
                 <>
