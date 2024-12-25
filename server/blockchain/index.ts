@@ -76,14 +76,13 @@ class Blockchain {
         );
 
       const balance = Number(result[0]?.activeTokens || 0);
-      const response = { balance };
       console.log('[Balance] Final calculation:', {
         address,
         balance,
         timestamp: new Date().toISOString()
       });
 
-      return response;
+      return balance;
     } catch (error) {
       console.error('[Balance] Error calculating balance:', {
         address,

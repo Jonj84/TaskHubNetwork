@@ -25,9 +25,14 @@ export function useBlockchain() {
     queryKey: ['/api/blockchain/balance', user?.username],
     queryFn: async () => {
       if (!user?.username) return 0;
-      const balance = await blockchainService.getBalance(user.username);
-      console.log('[Blockchain] Balance fetched:', { username: user.username, balance });
-      return balance || 0; // Added default value of 0
+      try {
+        const balance = await blockchainService.getBalance(user.username);
+        console.log('[Blockchain] Balance fetched:', { username: user.username, balance });
+        return balance;
+      } catch (error) {
+        console.error('[Blockchain] Balance fetch error:', error);
+        return 0;
+      }
     },
     enabled: !!user?.username,
     staleTime: 5000,

@@ -83,12 +83,16 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get('/api/blockchain/balance/:address', (req: Request, res: Response) => {
+  app.get('/api/blockchain/balance/:address', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
-      const balance = blockchainService.getBalance(address);
+      const balance = await blockchainService.getBalance(address);
       res.json({ balance });
     } catch (error: any) {
+      console.error('[API] Balance fetch error:', {
+        error: error.message,
+        address: req.params.address
+      });
       res.status(500).json({
         message: 'Failed to fetch balance',
         error: error.message

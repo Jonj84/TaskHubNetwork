@@ -36,9 +36,10 @@ class BlockchainService {
   async getBalance(address: string): Promise<number> {
     try {
       const response = await this.fetchApi<{ balance: number }>(`/api/blockchain/balance/${address}`);
+      console.log('[BlockchainService] Balance response:', response);
       return response.balance;
     } catch (error) {
-      console.error('Failed to fetch balance:', error);
+      console.error('[BlockchainService] Failed to fetch balance:', error);
       return 0;
     }
   }
