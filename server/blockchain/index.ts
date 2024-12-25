@@ -17,17 +17,26 @@ class Blockchain {
   async getBalance(address: string): Promise<number> {
     console.log('[Balance] Starting balance calculation for:', address);
     try {
-      // Execute raw SQL query for debugging
-      const debugQuery = await db.execute(
-        sql`SELECT COUNT(*) as count, status FROM tokens WHERE owner = ${address} GROUP BY status`
+      // First verify the tokens table has records
+      const tokenCountQuery = await db.execute(
+        sql`SELECT COUNT(*) as total FROM tokens`
       );
-      console.log('[Balance] Debug query result:', {
+      console.log('[Balance] Total tokens in system:', tokenCountQuery.rows[0]);
+
+      // Get detailed token status for address
+      const tokenStatusQuery = await db.execute(
+        sql`SELECT status, COUNT(*) as count 
+            FROM tokens 
+            WHERE owner = ${address} 
+            GROUP BY status`
+      );
+      console.log('[Balance] Token status for address:', {
         address,
-        rawResults: debugQuery,
+        statusBreakdown: tokenStatusQuery.rows,
         timestamp: new Date().toISOString()
       });
 
-      // Perform the actual balance calculation
+      // Calculate active tokens
       const result = await db
         .select({
           activeTokens: sql<number>`COALESCE(COUNT(*), 0)`
@@ -44,7 +53,6 @@ class Blockchain {
       console.log('[Balance] Final calculation:', {
         address,
         balance,
-        query: 'SELECT COUNT(*) FROM tokens WHERE owner = $1 AND status = \'active\'',
         timestamp: new Date().toISOString()
       });
 
@@ -71,6 +79,7 @@ class Blockchain {
       bonusTokens?: number;
     }
   ): Promise<TransactionResult> {
+    const startTime = Date.now();
     console.log('[Transaction] Starting new transaction:', {
       from,
       to,
@@ -173,8 +182,17 @@ class Blockchain {
           }))
         ];
 
-        // Insert tokens atomically
-        await tx.insert(tokens).values(tokensToCreate);
+        // Insert tokens atomically and verify
+        const insertedTokens = await tx.insert(tokens).values(tokensToCreate).returning();
+        console.log('[Transaction] Tokens created:', {
+          expectedCount: tokensToCreate.length,
+          actualCount: insertedTokens.length,
+          timestamp: new Date().toISOString()
+        });
+
+        if (insertedTokens.length !== tokensToCreate.length) {
+          throw new Error(`Token creation failed: Expected ${tokensToCreate.length} tokens but created ${insertedTokens.length}`);
+        }
 
         // Record transaction with detailed metadata
         const [transaction] = await tx.insert(tokenTransactions).values({
@@ -194,6 +212,11 @@ class Blockchain {
           }
         }).returning();
 
+        // Verify transaction was recorded
+        if (!transaction?.id) {
+          throw new Error('Failed to record transaction');
+        }
+
         const chainTransaction: Transaction = {
           id: transaction.id.toString(),
           from,
@@ -207,11 +230,13 @@ class Blockchain {
 
         this.chain.push(chainTransaction);
 
+        const duration = Date.now() - startTime;
         console.log('[Transaction] Successfully completed:', {
           transactionId: transaction.id,
           totalTokens: tokensToCreate.length,
           baseTokens: baseTokenIds.length,
           bonusTokens: bonusTokenIds.length,
+          duration: `${duration}ms`,
           timestamp: new Date().toISOString()
         });
 
@@ -228,6 +253,7 @@ class Blockchain {
         from,
         to,
         amount,
+        duration: `${Date.now() - startTime}ms`,
         timestamp: new Date().toISOString()
       });
       throw error;
