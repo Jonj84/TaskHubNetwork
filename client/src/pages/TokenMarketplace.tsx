@@ -14,6 +14,7 @@ import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Percent } from 'lucide-react';
 import { logErrorToServer } from '@/lib/errorLogging';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface PriceInfo {
   basePrice: number;
@@ -33,6 +34,7 @@ export default function TokenMarketplace() {
     tier: 'standard',
   });
   const [isPriceLoading, setIsPriceLoading] = useState(false);
+  const queryClient = useQueryClient();
 
   // Debounced price calculation
   useEffect(() => {
@@ -114,30 +116,32 @@ export default function TokenMarketplace() {
       const popup = window.open(
         checkoutUrl,
         'Stripe Checkout',
-        `width=${popupWidth},height=${popupHeight},left=${left},top=${top},toolbar=0,location=0,menubar=0,status=1`
+        `width=${popupWidth},height=${popupHeight},left=${left},top=${top}`
       );
 
       if (!popup) {
         throw new Error('Popup was blocked. Please allow popups and try again.');
       }
 
-      // Monitor popup status and handle messages
+      // Monitor popup status and handle closure
       const checkPopup = setInterval(() => {
-        try {
-          if (popup.closed) {
-            clearInterval(checkPopup);
-            setIsProcessing(false);
-          }
-        } catch (error) {
-          // Handle cross-origin errors silently
+        if (!popup || popup.closed) {
           clearInterval(checkPopup);
           setIsProcessing(false);
+
+          // Refresh user data when popup closes
+          queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+
+          toast({
+            title: 'Purchase Complete',
+            description: 'Your tokens will be credited to your account shortly.',
+          });
         }
       }, 500);
 
       toast({
         title: 'Checkout Started',
-        description: 'Please complete your purchase in the popup window. The page will update automatically when the purchase is complete.',
+        description: 'Please complete your purchase in the popup window.',
       });
 
     } catch (error: any) {

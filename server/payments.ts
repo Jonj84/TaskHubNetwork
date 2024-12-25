@@ -114,11 +114,15 @@ export async function createStripeSession(req: Request, res: Response) {
       userId: (req as any).user?.id
     });
 
-    // Get the Replit domain
-    const host = req.headers['x-replit-user-id'] ? req.get('host') : 'localhost:5000';
-    const protocol = req.headers['x-replit-user-id'] ? 'https' : 'http';
+    // Get the correct domain based on environment
+    const isReplit = Boolean(req.headers['x-replit-user-id']);
+    const host = isReplit ? req.get('host') : 'localhost:5000';
+    const protocol = isReplit ? 'https' : 'http';
+    const baseUrl = `${protocol}://${host}`;
 
-    // Create a checkout session with Replit-specific URLs
+    console.log('Using base URL:', baseUrl);
+
+    // Create a checkout session with dynamic URLs
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: [
@@ -135,8 +139,8 @@ export async function createStripeSession(req: Request, res: Response) {
         },
       ],
       mode: "payment",
-      success_url: `${protocol}://${host}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${protocol}://${host}/payment/cancel`,
+      success_url: `${baseUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/payment/cancel`,
       metadata: {
         tokenAmount: amount.toString(),
         userId: (req as any).user?.id?.toString(),
@@ -147,8 +151,8 @@ export async function createStripeSession(req: Request, res: Response) {
     console.log('Stripe session created:', {
       sessionId: session.id,
       url: session.url,
-      successUrl: `${protocol}://${host}/payment/success`,
-      cancelUrl: `${protocol}://${host}/payment/cancel`
+      successUrl: `${baseUrl}/payment/success`,
+      cancelUrl: `${baseUrl}/payment/cancel`
     });
 
     // Return the checkout URL and session ID
