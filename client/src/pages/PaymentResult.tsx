@@ -17,16 +17,28 @@ export default function PaymentResult() {
   useEffect(() => {
     const verifyPayment = async () => {
       if (isSuccess && sessionId) {
+        console.log('Starting payment verification:', { sessionId });
         try {
           const response = await fetch(`/api/tokens/verify-payment?session_id=${sessionId}`, {
             credentials: 'include'
           });
 
+          console.log('Verification response received:', {
+            status: response.status,
+            ok: response.ok
+          });
+
           if (!response.ok) {
-            throw new Error(await response.text());
+            const errorText = await response.text();
+            console.error('Verification failed:', {
+              status: response.status,
+              error: errorText
+            });
+            throw new Error(errorText);
           }
 
           const data = await response.json();
+          console.log('Payment verified successfully:', data);
 
           // Invalidate user data to refresh token balance
           queryClient.invalidateQueries({ queryKey: ['/api/user'] });
@@ -42,7 +54,12 @@ export default function PaymentResult() {
           }, 2000);
         } catch (error: any) {
           await logErrorToServer(error, 'payment_verification_failed');
-          console.error('Payment verification failed:', error);
+          console.error('Payment verification failed:', {
+            error,
+            sessionId,
+            message: error.message
+          });
+
           toast({
             variant: 'destructive',
             title: 'Verification Failed',

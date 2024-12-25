@@ -30,8 +30,17 @@ const STRIPE_PRODUCTS = {
 };
 
 async function creditTokensToUser(userId: number, tokenAmount: number, paymentId: string) {
+  console.log('Starting token credit process:', {
+    userId,
+    tokenAmount,
+    paymentId,
+    timestamp: new Date().toISOString()
+  });
+
   try {
     await db.transaction(async (tx) => {
+      console.log('Beginning database transaction');
+
       // Update user's token balance
       await tx
         .update(users)
@@ -39,6 +48,8 @@ async function creditTokensToUser(userId: number, tokenAmount: number, paymentId
           tokenBalance: sql`token_balance + ${tokenAmount}`,
         })
         .where(eq(users.id, userId));
+
+      console.log('Updated user token balance');
 
       // Record the transaction
       await tx.insert(tokenTransactions).values({
@@ -49,17 +60,26 @@ async function creditTokensToUser(userId: number, tokenAmount: number, paymentId
         paymentId,
         createdAt: new Date(),
       });
+
+      console.log('Recorded token transaction');
     });
 
     console.log('Successfully credited tokens:', {
       userId,
       tokenAmount,
       paymentId,
+      timestamp: new Date().toISOString()
     });
 
     return true;
   } catch (error) {
-    console.error('Failed to credit tokens:', error);
+    console.error('Failed to credit tokens:', {
+      error,
+      userId,
+      tokenAmount,
+      paymentId,
+      timestamp: new Date().toISOString()
+    });
     throw error;
   }
 }
@@ -132,9 +152,9 @@ export async function createStripeSession(req: Request, res: Response) {
     });
 
     // Return the checkout URL and session ID
-    res.json({ 
+    res.json({
       checkoutUrl: session.url,
-      sessionId: session.id 
+      sessionId: session.id
     });
   } catch (error: any) {
     console.error("Stripe session creation error:", {
@@ -145,14 +165,14 @@ export async function createStripeSession(req: Request, res: Response) {
     });
 
     if (error.type?.startsWith('Stripe')) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: error.message,
         code: error.code,
         type: error.type
       });
     }
 
-    return res.status(500).json({ 
+    return res.status(500).json({
       message: error.message || "Failed to create payment session",
       code: 'INTERNAL_ERROR'
     });
@@ -160,8 +180,15 @@ export async function createStripeSession(req: Request, res: Response) {
 }
 
 export async function verifyStripePayment(sessionId: string, res: Response) {
+  console.log('Verifying payment for session:', sessionId);
+
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId);
+    console.log('Retrieved Stripe session:', {
+      id: session.id,
+      paymentStatus: session.payment_status,
+      metadata: session.metadata
+    });
 
     if (!session) {
       throw new Error('Payment session not found');
@@ -169,6 +196,10 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
 
     // Check payment status
     if (session.payment_status !== 'paid') {
+      console.log('Payment not completed:', {
+        sessionId,
+        status: session.payment_status
+      });
       return res.status(400).json({
         message: 'Payment has not been completed',
         status: session.payment_status
@@ -178,6 +209,10 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
     const { tokenAmount, userId } = session.metadata || {};
 
     if (!tokenAmount || !userId) {
+      console.error('Missing metadata:', {
+        sessionId,
+        metadata: session.metadata
+      });
       throw new Error('Missing required metadata in session');
     }
 
@@ -189,70 +224,81 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
     );
 
     // Return success response
-    res.json({
+    const response = {
       success: true,
       tokenAmount: parseInt(tokenAmount, 10),
       paymentId: session.payment_intent as string
-    });
+    };
+
+    console.log('Payment verification successful:', response);
+    res.json(response);
 
   } catch (error: any) {
-    console.error('Payment verification error:', error);
+    console.error('Payment verification error:', {
+      error,
+      sessionId,
+      message: error.message,
+      stack: error.stack
+    });
     throw error;
   }
 }
 
 export async function handleStripeWebhook(req: Request, res: Response) {
-  const sig = req.headers["stripe-signature"];
+    console.log('Handling Stripe Webhook');
+    const sig = req.headers["stripe-signature"];
 
-  try {
-    if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
-      throw new Error("Missing Stripe webhook configuration");
+    try {
+        if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
+            console.error('Missing Stripe webhook configuration');
+            throw new Error("Missing Stripe webhook configuration");
+        }
+
+        const event = stripe.webhooks.constructEvent(
+            req.body,
+            sig,
+            process.env.STRIPE_WEBHOOK_SECRET
+        );
+
+        console.log('Received Stripe webhook event:', {
+            type: event.type,
+            id: event.id
+        });
+
+        if (event.type === "checkout.session.completed") {
+            const session = event.data.object as Stripe.Checkout.Session;
+            const { tokenAmount, userId } = session.metadata || {};
+
+            if (!tokenAmount || !userId) {
+                console.error("Missing metadata in Stripe session:", {session});
+                throw new Error("Missing metadata in Stripe session");
+            }
+
+            console.log('Payment completed:', {
+                tokenAmount,
+                userId,
+                sessionId: session.id
+            });
+
+            // Credit tokens to user's account
+            await creditTokensToUser(
+                parseInt(userId, 10),
+                parseInt(tokenAmount, 10),
+                session.payment_intent as string
+            );
+        }
+
+        res.json({ received: true });
+    } catch (error: any) {
+        console.error("Stripe webhook error:", {
+            error: error.message,
+            type: error.type,
+            stack: error.stack
+        });
+
+        res.status(400).json({
+            message: "Webhook error",
+            error: error.message
+        });
     }
-
-    const event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-
-    console.log('Received Stripe webhook event:', {
-      type: event.type,
-      id: event.id
-    });
-
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const { tokenAmount, userId } = session.metadata || {};
-
-      if (!tokenAmount || !userId) {
-        throw new Error("Missing metadata in Stripe session");
-      }
-
-      console.log('Payment completed:', {
-        tokenAmount,
-        userId,
-        sessionId: session.id
-      });
-
-      // Credit tokens to user's account
-      await creditTokensToUser(
-        parseInt(userId, 10),
-        parseInt(tokenAmount, 10),
-        session.payment_intent as string
-      );
-    }
-
-    res.json({ received: true });
-  } catch (error: any) {
-    console.error("Stripe webhook error:", {
-      error: error.message,
-      type: error.type,
-      stack: error.stack
-    });
-
-    res.status(400).json({ 
-      message: "Webhook error",
-      error: error.message
-    });
-  }
 }
