@@ -15,42 +15,80 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { format } from 'date-fns';
-import { Search, Award, Clock } from 'lucide-react';
+import { Search, Award, Clock, Filter } from 'lucide-react';
 import type { Token } from '../lib/blockchain/types';
 import { motion } from 'framer-motion';
+import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "./ui/badge";
 
 interface TokenBrowserProps {
   tokens: Token[];
   isLoading?: boolean;
 }
 
+type SortField = 'newest' | 'oldest' | 'id' | 'status';
+type FilterStatus = 'all' | 'active' | 'escrow';
+
 export function TokenBrowser({ tokens, isLoading }: TokenBrowserProps) {
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest'>('newest');
+  const [sortBy, setSortBy] = useState<SortField>('newest');
+  const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+  const [creatorSearch, setCreatorSearch] = useState('');
 
   const filteredAndSortedTokens = useMemo(() => {
     let result = [...tokens];
-    
-    // Apply search filter if there's a search term
-    if (search) {
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      result = result.filter(token => token.status === statusFilter);
+    }
+
+    // Apply search filters
+    if (search || creatorSearch) {
       const searchLower = search.toLowerCase();
-      result = result.filter(token => 
-        token.id.toLowerCase().includes(searchLower) ||
-        token.metadata?.mintedInBlock?.toString().includes(searchLower)
-      );
+      const creatorLower = creatorSearch.toLowerCase();
+
+      result = result.filter(token => {
+        const matchesSearch = !search || 
+          token.id.toLowerCase().includes(searchLower) ||
+          token.metadata?.mintedInBlock?.toString().includes(searchLower);
+
+        const matchesCreator = !creatorSearch ||
+          token.creator?.toLowerCase().includes(creatorLower);
+
+        return matchesSearch && matchesCreator;
+      });
     }
 
     // Sort tokens
     result.sort((a, b) => {
-      const dateA = new Date(a.metadata?.createdAt || 0);
-      const dateB = new Date(b.metadata?.createdAt || 0);
-      return sortBy === 'newest' ? 
-        dateB.getTime() - dateA.getTime() : 
-        dateA.getTime() - dateB.getTime();
+      switch (sortBy) {
+        case 'newest':
+          return new Date(b.metadata?.createdAt || 0).getTime() - 
+                 new Date(a.metadata?.createdAt || 0).getTime();
+        case 'oldest':
+          return new Date(a.metadata?.createdAt || 0).getTime() - 
+                 new Date(b.metadata?.createdAt || 0).getTime();
+        case 'id':
+          return a.id.localeCompare(b.id);
+        case 'status':
+          return (a.status || '').localeCompare(b.status || '');
+        default:
+          return 0;
+      }
     });
 
     return result;
-  }, [tokens, search, sortBy]);
+  }, [tokens, search, sortBy, statusFilter, creatorSearch]);
 
   if (isLoading) {
     return (
@@ -74,6 +112,12 @@ export function TokenBrowser({ tokens, isLoading }: TokenBrowserProps) {
     );
   }
 
+  const activeFilters = [
+    statusFilter !== 'all' && `Status: ${statusFilter}`,
+    search && `Search: ${search}`,
+    creatorSearch && `Creator: ${creatorSearch}`,
+  ].filter(Boolean);
+
   return (
     <Card>
       <CardHeader>
@@ -83,35 +127,99 @@ export function TokenBrowser({ tokens, isLoading }: TokenBrowserProps) {
             Token Browser
           </span>
           <span className="text-sm font-normal text-muted-foreground">
-            {tokens.length} tokens found
+            {filteredAndSortedTokens.length} of {tokens.length} tokens
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           {/* Search and Filter Controls */}
-          <div className="flex gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search tokens..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
-              />
+          <div className="space-y-4">
+            <div className="flex gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by token ID or block..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
+              <Select
+                value={sortBy}
+                onValueChange={(value) => setSortBy(value as SortField)}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest First</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="id">Token ID</SelectItem>
+                  <SelectItem value="status">Status</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="w-[120px]">
+                    <Filter className="h-4 w-4 mr-2" />
+                    Filters
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56">
+                  <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={statusFilter === 'all'}
+                    onCheckedChange={() => setStatusFilter('all')}
+                  >
+                    All Tokens
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={statusFilter === 'active'}
+                    onCheckedChange={() => setStatusFilter('active')}
+                  >
+                    Active Only
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={statusFilter === 'escrow'}
+                    onCheckedChange={() => setStatusFilter('escrow')}
+                  >
+                    In Escrow
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button
+                variant="ghost"
+                onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
+              >
+                {showAdvancedSearch ? 'Simple Search' : 'Advanced Search'}
+              </Button>
             </div>
-            <Select
-              value={sortBy}
-              onValueChange={(value) => setSortBy(value as 'newest' | 'oldest')}
-            >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest First</SelectItem>
-                <SelectItem value="oldest">Oldest First</SelectItem>
-              </SelectContent>
-            </Select>
+
+            {showAdvancedSearch && (
+              <div className="flex gap-4">
+                <div className="relative flex-1">
+                  <Input
+                    placeholder="Search by creator..."
+                    value={creatorSearch}
+                    onChange={(e) => setCreatorSearch(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {activeFilters.length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                {activeFilters.map((filter, index) => (
+                  <Badge key={index} variant="secondary">
+                    {filter}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Token Grid */}
@@ -149,6 +257,14 @@ export function TokenBrowser({ tokens, isLoading }: TokenBrowserProps) {
                                 {format(new Date(token.metadata?.createdAt || 0), 'MMM d, yyyy')}
                               </span>
                             </div>
+                            {token.creator && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Creator</span>
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {token.creator}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -190,7 +306,9 @@ export function TokenBrowser({ tokens, isLoading }: TokenBrowserProps) {
               <Clock className="h-12 w-12 text-muted-foreground/50 mb-4" />
               <p className="text-lg font-medium">No tokens found</p>
               <p className="text-sm text-muted-foreground">
-                {search ? 'Try adjusting your search query' : 'Your tokens will appear here'}
+                {search || creatorSearch || statusFilter !== 'all' ? 
+                  'Try adjusting your search filters' : 
+                  'Your tokens will appear here'}
               </p>
             </div>
           )}
