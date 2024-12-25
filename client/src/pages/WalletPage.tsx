@@ -62,7 +62,7 @@ export default function WalletPage() {
   };
 
   // Filter transactions for current user
-  const userTransactions = transactions.filter(tx => 
+  const userTransactions = transactions.filter(tx =>
     tx.from === user?.username || tx.to === user?.username
   );
 
@@ -124,8 +124,8 @@ export default function WalletPage() {
               disabled={isProcessing}
               min="0"
             />
-            <Button 
-              onClick={handleTransaction} 
+            <Button
+              onClick={handleTransaction}
               className="w-full"
               disabled={isProcessing || amount <= 0 || !recipient || !user}
             >
@@ -234,7 +234,13 @@ export default function WalletPage() {
                     <TableCell>{tx.from === user?.username ? 'You' : tx.from}</TableCell>
                     <TableCell>{tx.to === user?.username ? 'You' : tx.to}</TableCell>
                     <TableCell className={tx.to === user?.username ? 'text-green-600' : 'text-red-600'}>
-                      {tx.to === user?.username ? '+' : '-'}{tx.tokenIds?.length || tx.amount}
+                      {tx.to === user?.username ? '+' : '-'}
+                      {tx.type === 'mint' && tx.from === 'SYSTEM' ? (
+                        tx.amount // For purchased tokens, show actual amount
+                      ) : (
+                        tx.tokenIds?.length || tx.amount || 1 // Fallback for mining rewards
+                      )}
+                      {tx.type === 'mint' && tx.from === 'SYSTEM' ? ' Tokens' : ' (Mining Reward)'}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {tx.tokenIds?.map(id => id.substring(0, 6)).join(', ')}
