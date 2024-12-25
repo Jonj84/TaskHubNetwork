@@ -9,6 +9,37 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  const path = req.path;
+  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+
+  const originalResJson = res.json;
+  res.json = function (bodyJson, ...args) {
+    capturedJsonResponse = bodyJson;
+    return originalResJson.apply(res, [bodyJson, ...args]);
+  };
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (path.startsWith("/api")) {
+      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      }
+
+      if (logLine.length > 80) {
+        logLine = logLine.slice(0, 79) + "…";
+      }
+
+      log(logLine);
+    }
+  });
+
+  next();
+});
+
 (async () => {
   try {
     log("Starting server initialization...");
@@ -22,17 +53,17 @@ app.use(express.urlencoded({ extended: false }));
       throw new Error(`Database connection failed: ${error.message}`);
     }
 
-    // Set up auth
+    // Set up auth first
     log("Setting up authentication...");
     setupAuth(app);
     log("Authentication setup complete");
 
-    // Register routes and get HTTP server
+    // Register API routes before Vite middleware
     log("Registering routes...");
     const server = registerRoutes(app);
     log("Route registration complete");
 
-    // Setup WebSocket server BEFORE Vite setup to ensure proper upgrade handling
+    // Setup WebSocket server
     log("Setting up WebSocket server...");
     setupWebSocket(server);
     log("WebSocket setup complete");
@@ -47,13 +78,18 @@ app.use(express.urlencoded({ extended: false }));
         log(`Stack trace: ${err.stack}`);
       }
 
-      res.status(status).json({ 
-        message,
-        ...(process.env.NODE_ENV === 'development' ? { stack: err.stack } : {})
-      });
+      // Only send JSON responses for API routes
+      if (_req.path.startsWith('/api')) {
+        res.status(status).json({ 
+          message,
+          ...(process.env.NODE_ENV === 'development' ? { stack: err.stack } : {})
+        });
+      } else {
+        res.status(status).send(message);
+      }
     });
 
-    // Setup Vite in development mode or serve static files in production
+    // Setup Vite AFTER all API routes
     if (app.get("env") === "development") {
       log("Setting up Vite development server...");
       await setupVite(app, server);
