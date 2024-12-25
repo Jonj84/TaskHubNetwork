@@ -109,9 +109,47 @@ export function registerRoutes(app: Express): Server {
 
   app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
-  app.get('/api/payment/verify/:sessionId', async (req: Request, res: Response) => {
+  app.get('/api/payment/verify/:sessionId', async (req: AuthRequest, res: Response) => {
     try {
-      await verifyStripePayment(req.params.sessionId, res);
+      console.log('[API] Verifying payment for session:', req.params.sessionId);
+
+      if (!req.user) {
+        throw new Error('Authentication required');
+      }
+
+      const result = await verifyStripePayment(req.params.sessionId, req.user);
+
+      if (result.success) {
+        // Create tokens using blockchain service
+        const response = await blockchainService.createTransaction(
+          'SYSTEM',
+          req.user.username,
+          result.amount,
+          {
+            paymentId: req.params.sessionId,
+            price: result.price,
+            pricePerToken: result.pricePerToken,
+            bonusTokens: result.bonusTokens
+          }
+        );
+
+        console.log('[API] Tokens created:', {
+          sessionId: req.params.sessionId,
+          username: req.user.username,
+          amount: result.amount,
+          transactionId: response.id
+        });
+
+        // Force sync user's balance
+        await balanceTracker.forceSyncBalance(req.user.username);
+
+        res.json({ 
+          success: true,
+          message: 'Payment verified and tokens created successfully'
+        });
+      } else {
+        throw new Error(result.message || 'Payment verification failed');
+      }
     } catch (error: any) {
       console.error('[API] Payment verification error:', {
         sessionId: req.params.sessionId,
@@ -119,6 +157,7 @@ export function registerRoutes(app: Express): Server {
         stack: error instanceof Error ? error.stack : undefined
       });
       res.status(500).json({
+        success: false,
         message: error.message || 'Failed to verify payment',
         code: 'VERIFICATION_ERROR'
       });

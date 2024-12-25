@@ -98,24 +98,32 @@ export default function TokenMarketplace() {
 
   const verifyPayment = async (sessionId: string, popup: Window) => {
     try {
+      console.log('[Payment] Verifying payment for session:', sessionId);
       const response = await fetch(`/api/payment/verify/${sessionId}`);
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      console.log('[Payment] Verification response:', data);
+
+      if (data.success) {
         toast({
           title: 'Purchase Successful',
           description: `${tokenAmount} tokens have been credited to your account.`,
         });
         // Refresh user data
         queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] });
       } else {
+        // Even if we get an error, the payment might have succeeded
+        // Refresh data to be safe
+        queryClient.invalidateQueries({ queryKey: ['/api/user'] });
         throw new Error(data.message || 'Payment verification failed');
       }
     } catch (error: any) {
+      console.error('[Payment] Verification error:', error);
       toast({
         variant: 'destructive',
-        title: 'Purchase Failed',
-        description: error.message || 'Failed to verify payment. Please try again.',
+        title: 'Purchase Status',
+        description: 'Your payment may have been processed. Please check your token balance.',
       });
     } finally {
       // Always close popup and reset processing state
