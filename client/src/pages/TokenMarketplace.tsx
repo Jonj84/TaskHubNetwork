@@ -128,7 +128,8 @@ export default function TokenMarketplace() {
       setIsProcessing(true);
 
       if (!isValidAmount(tokenAmount)) {
-        throw new Error('Please enter a valid amount between 1 and 10,000 tokens');
+        console.error('Invalid token amount:', tokenAmount);
+        return;
       }
 
       console.log('Initiating purchase for', tokenAmount, 'tokens');
@@ -141,14 +142,17 @@ export default function TokenMarketplace() {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText);
+        console.error('Purchase request failed:', await response.text());
+        setIsProcessing(false);
+        return;
       }
 
       const { checkoutUrl, sessionId } = await response.json();
 
       if (!checkoutUrl || !sessionId) {
-        throw new Error('Invalid response from server');
+        console.error('Invalid server response - missing checkoutUrl or sessionId');
+        setIsProcessing(false);
+        return;
       }
 
       // Open in a popup window
@@ -164,14 +168,16 @@ export default function TokenMarketplace() {
       );
 
       if (!popup) {
-        throw new Error('Popup was blocked. Please allow popups and try again.');
+        console.error('Popup was blocked');
+        setIsProcessing(false);
+        return;
       }
 
       // Start payment verification process
-      const checkPayment = setInterval(async () => {
+      const checkPayment = setInterval(() => {
         if (popup.closed) {
           clearInterval(checkPayment);
-          await verifyPayment(sessionId, popup);
+          verifyPayment(sessionId, popup);
         }
       }, 1000);
 
@@ -180,10 +186,8 @@ export default function TokenMarketplace() {
         description: 'Please complete your purchase in the popup window.',
       });
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('[Token purchase failed] Error:', error);
-      await logErrorToServer(error, 'token_purchase_failed');
-      console.error("Purchase Failed:", error); //Log to console instead of toast
       setIsProcessing(false);
     }
   };
