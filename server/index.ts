@@ -3,8 +3,6 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { IncomingMessage } from "http";
-import { Socket } from "net";
 import { setupWebSocket } from "./ws";
 
 const app = express();
@@ -34,11 +32,6 @@ app.use(express.urlencoded({ extended: false }));
     const server = registerRoutes(app);
     log("Route registration complete");
 
-    // Setup WebSocket server
-    log("Setting up WebSocket server...");
-    setupWebSocket(server);
-    log("WebSocket setup complete");
-
     // Global error handler with detailed logging
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
@@ -47,11 +40,6 @@ app.use(express.urlencoded({ extended: false }));
       log(`Error handling request: ${message}`);
       if (err.stack) {
         log(`Stack trace: ${err.stack}`);
-      }
-
-      // Log additional error details if available
-      if (err.details) {
-        log(`Additional error details: ${JSON.stringify(err.details)}`);
       }
 
       res.status(status).json({ 
@@ -70,6 +58,41 @@ app.use(express.urlencoded({ extended: false }));
       serveStatic(app);
       log("Static file serving setup complete");
     }
+
+    // Setup WebSocket server with rate limiting AFTER Vite setup
+    log("Setting up WebSocket server...");
+    const wsConnections = new Map<string, number>();
+    const WS_RATE_LIMIT = 5; // connections per minute
+    const WS_RATE_WINDOW = 60000; // 1 minute in milliseconds
+
+    setupWebSocket(server, {
+      beforeUpgrade: (request: Request) => {
+        const clientIp = request.ip || request.socket.remoteAddress || 'unknown';
+        const now = Date.now();
+
+        // Clean up old entries
+        wsConnections.forEach((timestamp, ip) => {
+          if (now - timestamp > WS_RATE_WINDOW) {
+            wsConnections.delete(ip);
+          }
+        });
+
+        // Check rate limit
+        const connectionCount = Array.from(wsConnections.values()).filter(
+          timestamp => now - timestamp < WS_RATE_WINDOW
+        ).length;
+
+        if (connectionCount >= WS_RATE_LIMIT) {
+          log(`[WebSocket] Rate limit exceeded for ${clientIp}`);
+          return false;
+        }
+
+        // Record this connection attempt
+        wsConnections.set(clientIp, now);
+        return true;
+      }
+    });
+    log("WebSocket setup complete");
 
     // Start server
     const PORT = 5000;
