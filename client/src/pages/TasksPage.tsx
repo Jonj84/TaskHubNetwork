@@ -39,6 +39,7 @@ const taskSchema = z.object({
   description: z.string().min(1, 'Description is required').max(500, 'Description is too long'),
   type: z.enum(['manual', 'computational'] as const),
   reward: z.number().min(1, 'Reward must be at least 1 token').max(1000, 'Reward cannot exceed 1000 tokens'),
+  proofType: z.enum(['confirmation_approval', 'image_upload', 'code_submission', 'text_submission'] as const),
   proofRequired: z.string().min(1, 'Proof requirement is required').max(200, 'Proof requirement is too long'),
 });
 
@@ -58,6 +59,7 @@ export default function TasksPage() {
       description: '',
       type: 'manual',
       reward: 1,
+      proofType: 'confirmation_approval',
       proofRequired: '',
     },
   });
@@ -168,6 +170,32 @@ export default function TasksPage() {
                           <SelectContent>
                             <SelectItem value="manual">Manual</SelectItem>
                             <SelectItem value="computational">Computational</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="proofType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Proof Type</FormLabel>
+                      <FormControl>
+                        <Select
+                          defaultValue={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger aria-label="Select proof type">
+                            <SelectValue placeholder="Select proof type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="confirmation_approval">Confirmation Approval</SelectItem>
+                            <SelectItem value="image_upload">Image Upload</SelectItem>
+                            <SelectItem value="code_submission">Code Submission</SelectItem>
+                            <SelectItem value="text_submission">Text Submission</SelectItem>
                           </SelectContent>
                         </Select>
                       </FormControl>

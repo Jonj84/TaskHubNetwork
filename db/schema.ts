@@ -22,8 +22,12 @@ export const tasks = pgTable("tasks", {
   }).notNull().default("open"),
   creatorId: integer("creator_id").notNull(),
   workerId: integer("worker_id"),
+  proofType: text("proof_type", {
+    enum: ["confirmation_approval", "image_upload", "code_submission", "text_submission"]
+  }).notNull().default("confirmation_approval"),
   proofRequired: text("proof_required").notNull(),
   proofSubmitted: text("proof_submitted"),
+  escrowTransactionId: text("escrow_transaction_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });

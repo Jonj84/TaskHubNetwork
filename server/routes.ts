@@ -35,10 +35,10 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { title, description, type, reward, proofRequired } = req.body;
+      const { title, description, type, reward, proofType, proofRequired } = req.body;
 
       // Validate required fields
-      if (!title || !description || !type || !reward || !proofRequired) {
+      if (!title || !description || !type || !reward || !proofType || !proofRequired) {
         return res.status(400).json({
           message: 'Missing required fields',
           code: 'INVALID_PARAMETERS'
@@ -82,7 +82,9 @@ export function registerRoutes(app: Express): Server {
               reward,
               status: 'open',
               creatorId: req.user!.id,
+              proofType,
               proofRequired,
+              escrowTransactionId: escrowResult.id,
               created_at: new Date(),
               updated_at: new Date()
             })
