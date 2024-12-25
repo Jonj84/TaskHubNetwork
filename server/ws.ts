@@ -20,6 +20,8 @@ interface WebSocketOptions {
 
 // Store active connections with metadata
 const clients = new Map<WebSocket, ClientMetadata>();
+// Track handled upgrade requests to prevent duplicates
+const handledUpgrades = new WeakSet<any>();
 
 // Active balance subscriptions
 const balanceSubscriptions = new Map<string, Set<WebSocket>>();
@@ -61,49 +63,42 @@ async function cleanupClient(ws: WebSocket) {
   }
 }
 
-export function broadcast(type: string, data: any, filter?: (client: WebSocket) => boolean) {
-  const message = JSON.stringify({ type, data });
-  let successCount = 0;
-  let failCount = 0;
+export async function notifyBalanceUpdate(userId: string, newBalance: number) {
+  try {
+    const subscribers = balanceSubscriptions.get(userId);
+    if (!subscribers) {
+      log(`[WebSocket] No subscribers for balance updates: ${userId}`);
+      return;
+    }
 
-  clients.forEach((metadata, client) => {
-    if (client.readyState === WebSocket.OPEN && 
-        metadata.isAlive && 
-        metadata.state === 'connected' &&
-        (!filter || filter(client))) {
+    const message = JSON.stringify({
+      type: 'balance_update',
+      data: { userId, balance: newBalance }
+    });
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const client of subscribers) {
       try {
-        client.send(message);
-        successCount++;
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(message);
+          successCount++;
+        } else {
+          await cleanupClient(client);
+          failCount++;
+        }
       } catch (error) {
-        log(`[WebSocket] Broadcast failed: ${error instanceof Error ? error.message : String(error)}`);
-        cleanupClient(client);
+        log(`[WebSocket] Balance update failed: ${error instanceof Error ? error.message : String(error)}`);
+        await cleanupClient(client);
         failCount++;
       }
     }
-  });
 
-  log(`[WebSocket] Broadcast complete: ${successCount} successful, ${failCount} failed`);
-}
-
-export async function notifyBalanceUpdate(userId: string, newBalance: number) {
-  const subscribers = balanceSubscriptions.get(userId);
-  if (!subscribers) return;
-
-  const message = JSON.stringify({
-    type: 'balance_update',
-    data: { userId, balance: newBalance }
-  });
-
-  Array.from(subscribers).forEach(async (client) => {
-    try {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    } catch (error) {
-      log(`[WebSocket] Balance update failed: ${error instanceof Error ? error.message : String(error)}`);
-      await cleanupClient(client);
-    }
-  });
+    log(`[WebSocket] Balance update broadcast: ${successCount} successful, ${failCount} failed`);
+  } catch (error) {
+    log(`[WebSocket] Balance notification error: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export function setupWebSocket(server: Server, options: WebSocketOptions = {}): WebSocketServer {
@@ -116,6 +111,11 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
     }
 
     try {
+      // Skip if we've already handled this socket
+      if (handledUpgrades.has(socket)) {
+        return;
+      }
+
       // Skip non-API WebSocket upgrades
       if (!request.url.startsWith('/api/')) {
         return;
@@ -137,7 +137,10 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
         return;
       }
 
-      socket.removeAllListeners();  // Clean up any existing listeners
+      // Mark this socket as handled
+      handledUpgrades.add(socket);
+
+      log(`[WebSocket] Handling upgrade for ${request.url}`);
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });
@@ -150,6 +153,7 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
     }
   });
 
+  // Heartbeat check interval
   const interval = setInterval(() => {
     clients.forEach((metadata, ws) => {
       if (!metadata.isAlive || metadata.state !== 'connected') {
@@ -190,6 +194,9 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
 
           if (!metadata) return;
 
+          metadata.lastPing = Date.now();
+          metadata.state = 'connected';
+
           if (message.type === 'ping') {
             ws.send(JSON.stringify({ type: 'pong' }));
             heartbeat.call(ws);
@@ -206,29 +213,18 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
 
             try {
               const balance = await balanceTracker.getBalance(metadata.userId);
-              ws.send(JSON.stringify({
-                type: 'balance_update',
-                data: { userId: metadata.userId, balance }
-              }));
+              await notifyBalanceUpdate(metadata.userId, balance); // Use the new function
             } catch (error) {
               log(`[WebSocket] Initial balance fetch failed: ${error instanceof Error ? error.message : String(error)}`);
             }
           }
-
-          metadata.lastPing = Date.now();
-          metadata.state = 'connected';
-
-          broadcast(message.type, message.data, (client) => {
-            const clientData = clients.get(client);
-            return clientData?.subscriptions.has(pathname) || false;
-          });
-
         } catch (error) {
           log(`[WebSocket] Message processing error: ${error instanceof Error ? error.message : String(error)}`);
         }
       });
 
       ws.on('close', () => {
+        log(`[WebSocket] Client disconnected: ${pathname}`);
         cleanupClient(ws);
       });
 
@@ -242,6 +238,7 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
         metadata.state = 'connected';
       }
 
+      log(`[WebSocket] New client connected: ${pathname}`);
       ws.send(JSON.stringify({
         type: 'connected',
         data: {
@@ -263,4 +260,28 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
   });
 
   return wss;
+}
+
+export function broadcast(type: string, data: any, filter?: (client: WebSocket) => boolean) {
+  const message = JSON.stringify({ type, data });
+  let successCount = 0;
+  let failCount = 0;
+
+  clients.forEach((metadata, client) => {
+    if (client.readyState === WebSocket.OPEN && 
+        metadata.isAlive && 
+        metadata.state === 'connected' &&
+        (!filter || filter(client))) {
+      try {
+        client.send(message);
+        successCount++;
+      } catch (error) {
+        log(`[WebSocket] Broadcast failed: ${error instanceof Error ? error.message : String(error)}`);
+        cleanupClient(client);
+        failCount++;
+      }
+    }
+  });
+
+  log(`[WebSocket] Broadcast complete: ${successCount} successful, ${failCount} failed`);
 }
