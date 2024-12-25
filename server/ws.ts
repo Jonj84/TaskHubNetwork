@@ -51,7 +51,13 @@ class WebSocketManager {
           throw new Error('WebSocket server not initialized');
         }
 
+        // Extract session data if available
+        const userId = (request as any).session?.passport?.user?.id;
+        log(`[WebSocket] Upgrade request from user: ${userId || 'anonymous'}`);
+
         wsServer.handleUpgrade(request, socket, head, (ws) => {
+          // Store userId in request for connection handler
+          (request as any).userId = userId;
           wsServer?.emit('connection', ws, request);
         });
       } catch (error) {
@@ -70,7 +76,7 @@ class WebSocketManager {
 
   private async handleConnection(ws: WebSocket, request: Request) {
     const connectionId = Math.random().toString(36).substring(2);
-    const userId = (request as any).session?.userId;
+    const userId = (request as any).userId;
 
     log(`[WebSocket] New connection: ${connectionId}${userId ? ` for user ${userId}` : ''}`);
 
@@ -90,19 +96,19 @@ class WebSocketManager {
     });
     ws.on('error', (error) => {
       log(`[WebSocket] Error for connection ${connectionId}: ${error.message}`);
-      // Don't close the connection here, let the error propagate to onclose
     });
 
-    // If authenticated, send initial balance
+    // Send initial balance for authenticated users
     if (userId) {
       try {
         const balance = await balanceTracker.getBalance(userId);
+        log(`[WebSocket] Sending initial balance to user ${userId}: ${balance}`);
         this.sendMessage(ws, {
           type: 'balance_update',
-          data: { balance }
+          data: { balance, initial: true }
         });
       } catch (error) {
-        log(`[WebSocket] Balance fetch error: ${error instanceof Error ? error.message : String(error)}`);
+        log(`[WebSocket] Initial balance fetch error: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
@@ -128,7 +134,10 @@ class WebSocketManager {
   private handleMessage(connectionId: string, data: any) {
     try {
       const connection = this.connections.get(connectionId);
-      if (!connection) return;
+      if (!connection) {
+        log(`[WebSocket] Message received for unknown connection: ${connectionId}`);
+        return;
+      }
 
       const message = JSON.parse(data.toString());
 
@@ -143,11 +152,15 @@ class WebSocketManager {
               .then(balance => {
                 this.sendMessage(connection.ws, {
                   type: 'balance_update',
-                  data: { balance }
+                  data: { balance, subscribed: true }
                 });
               })
               .catch(error => {
                 log(`[WebSocket] Balance subscription error: ${error.message}`);
+                this.sendMessage(connection.ws, {
+                  type: 'error',
+                  data: { message: 'Failed to fetch balance' }
+                });
               });
           }
           break;

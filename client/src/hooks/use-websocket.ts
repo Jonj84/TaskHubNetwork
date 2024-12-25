@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { type WebSocketStatus } from '@/lib/websocket/WebSocketService';
+import { useToast } from '@/hooks/use-toast';
 
 interface WebSocketService {
   connect: () => void;
@@ -20,6 +21,7 @@ let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
 let backoffDelay = 1000;
 let reconnectTimeout: NodeJS.Timeout | null = null;
+let lastMessageTime = 0;
 
 function createWebSocketService(config: WebSocketConfig): WebSocketService {
   const {
@@ -40,6 +42,7 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
     try {
       ws = new WebSocket(url);
       backoffDelay = initialBackoff;
+      lastMessageTime = Date.now();
 
       ws.onopen = () => {
         console.log('[WebSocket] Connected successfully');
@@ -50,6 +53,8 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          lastMessageTime = Date.now();
+
           if (data.type !== 'pong') {
             console.log('[WebSocket] Received message:', data);
           }
@@ -63,7 +68,8 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
         console.log('[WebSocket] Connection closed:', {
           code: event.code,
           reason: event.reason,
-          wasClean: event.wasClean
+          wasClean: event.wasClean,
+          timeSinceLastMessage: Date.now() - lastMessageTime
         });
         onStatusChange('disconnected');
 
@@ -81,16 +87,25 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
           }, delay);
         } else {
           console.log('[WebSocket] Max reconnection attempts reached');
+          onStatusChange('error');
         }
       };
 
       ws.onerror = (event) => {
         console.log('[WebSocket] Connection error:', {
           type: event.type,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          timeSinceLastMessage: Date.now() - lastMessageTime
         });
         onStatusChange('error');
       };
+
+      // Start heartbeat
+      setInterval(() => {
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 30000);
 
     } catch (error) {
       console.error('[WebSocket] Setup error:', error);
@@ -132,16 +147,33 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
 
 export function useWebSocket(url: string) {
   const [status, setStatus] = useState<WebSocketStatus>('disconnected');
+  const { toast } = useToast();
   const [service] = useState(() => 
     createWebSocketService({
       url,
       onStatusChange: (newStatus) => {
         console.log('[WebSocket] Status changed:', newStatus);
         setStatus(newStatus);
+
+        if (newStatus === 'error') {
+          toast({
+            title: 'Connection Error',
+            description: 'Lost connection to server. Attempting to reconnect...',
+            variant: 'destructive'
+          });
+        }
       },
       onMessage: (data) => {
         if (data.type !== 'pong') {
           console.log('[WebSocket] Received message:', data);
+        }
+
+        if (data.type === 'error') {
+          toast({
+            title: 'Error',
+            description: data.data.message,
+            variant: 'destructive'
+          });
         }
       },
       reconnectAttempts: 5,
