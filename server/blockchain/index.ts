@@ -53,6 +53,25 @@ class Blockchain {
     }
   }
 
+  async getUserById(tx: any, userId: string | number): Promise<any> {
+    const user = await tx
+      .select()
+      .from(users)
+      .where(
+        typeof userId === 'string' && !userId.match(/^\d+$/)
+          ? eq(users.username, userId)
+          : eq(users.id, parseInt(userId.toString()))
+      )
+      .limit(1)
+      .then(rows => rows[0]);
+
+    if (!user) {
+      throw new Error(`User not found with ID/username: ${userId}`);
+    }
+
+    return user;
+  }
+
   async releaseEscrow(escrowTransactionId: string, toAddress: string): Promise<TransactionResult> {
     console.log('[Blockchain] Releasing escrow:', { escrowTransactionId, toAddress });
 
@@ -92,6 +111,13 @@ class Blockchain {
           throw new Error('No tokens found in escrow');
         }
 
+        // Get recipient user
+        const recipientUser = await this.getUserById(tx, toAddress);
+        console.log('[Blockchain] Found recipient user:', {
+          id: recipientUser.id,
+          username: recipientUser.username
+        });
+
         console.log('[Blockchain] Found escrow tokens:', {
           count: tokenIds.length,
           tokenIds
@@ -126,7 +152,7 @@ class Blockchain {
         const updateResult = await tx
           .update(tokens)
           .set({
-            owner: toAddress,
+            owner: recipientUser.username,
             status: 'active',
             updated_at: new Date()
           })
@@ -148,11 +174,11 @@ class Blockchain {
         const [releaseTx] = await tx
           .insert(tokenTransactions)
           .values({
-            userId: parseInt(toAddress),
+            userId: recipientUser.id,
             type: 'release',
             status: 'completed',
             fromAddress: 'ESCROW',
-            toAddress: toAddress,
+            toAddress: recipientUser.username,
             tokenIds: tokenIds,
             metadata: {
               escrowTransactionId,
@@ -167,7 +193,7 @@ class Blockchain {
         const chainTransaction: Transaction = {
           id: releaseTx.id.toString(),
           from: 'ESCROW',
-          to: toAddress,
+          to: recipientUser.username,
           amount: tokenIds.length,
           timestamp: Date.now(),
           type: 'release',
@@ -182,13 +208,13 @@ class Blockchain {
         this.chain.push(chainTransaction);
 
         // Update balances
-        await balanceTracker.invalidateCache(toAddress);
-        await balanceTracker.forceSyncBalance(toAddress);
+        await balanceTracker.invalidateCache(recipientUser.username);
+        await balanceTracker.forceSyncBalance(recipientUser.username);
 
         console.log('[Blockchain] Escrow released successfully:', {
           transactionId: releaseTx.id,
           tokenCount: tokenIds.length,
-          recipient: toAddress,
+          recipient: recipientUser.username,
           timestamp: new Date().toISOString()
         });
 
@@ -220,28 +246,11 @@ class Blockchain {
         }
 
         // Get receiver's user ID
-        const toUser = await tx
-          .select()
-          .from(users)
-          .where(eq(users.username, to))
-          .limit(1)
-          .then(rows => rows[0]);
+        const toUser = await this.getUserById(tx, to);
 
-        if (!toUser && to !== 'ESCROW') {
-          throw new Error(`Recipient user not found: ${to}`);
-        }
 
         // Get sender's user ID
-        const fromUser = await tx
-          .select()
-          .from(users)
-          .where(eq(users.username, from))
-          .limit(1)
-          .then(rows => rows[0]);
-
-        if (!fromUser) {
-          throw new Error(`Sender user not found: ${from}`);
-        }
+        const fromUser = await this.getUserById(tx, from);
 
         // Get tokens owned by sender
         const senderTokens = await tx
@@ -428,5 +437,6 @@ export const blockchainService = {
   getPendingTransactions: blockchain.getPendingTransactions.bind(blockchain),
   getBalance: blockchain.getBalance.bind(blockchain),
   getTokens: blockchain.getTokens.bind(blockchain),
-  releaseEscrow: blockchain.releaseEscrow.bind(blockchain)
+  releaseEscrow: blockchain.releaseEscrow.bind(blockchain),
+  getUserById: blockchain.getUserById.bind(blockchain) //added getUserById export
 } as const;
