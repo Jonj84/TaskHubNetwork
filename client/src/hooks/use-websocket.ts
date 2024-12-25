@@ -6,11 +6,17 @@ export function useWebSocket(url: string) {
   const [service] = useState(() => 
     createWebSocketService({
       url,
-      onStatusChange: setStatus,
+      onStatusChange: (newStatus) => {
+        console.log('[WebSocket] Status changed:', newStatus);
+        setStatus(newStatus);
+      },
       onMessage: (data) => {
         console.log('[WebSocket] Received message:', data);
         // Handle incoming messages here
-      }
+      },
+      reconnectAttempts: 5,
+      initialBackoff: 1000,
+      maxBackoff: 30000
     })
   );
 
@@ -30,6 +36,7 @@ export function useWebSocket(url: string) {
 
   return {
     status,
-    reconnect
+    reconnect,
+    isConnected: status === 'connected'
   };
 }

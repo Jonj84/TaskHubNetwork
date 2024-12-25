@@ -1,4 +1,3 @@
-import { createWebSocket } from './createWebSocket';
 import { toast } from '@/hooks/use-toast';
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -18,6 +17,7 @@ class WebSocketService {
   private reconnectAttempt = 0;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private options: WebSocketOptions;
+  private isManualDisconnect = false;
 
   constructor(options: WebSocketOptions) {
     this.options = {
@@ -34,10 +34,19 @@ class WebSocketService {
       return;
     }
 
+    if (this.isManualDisconnect) {
+      console.log('[WebSocket] Manual disconnect active, skipping reconnect');
+      return;
+    }
+
     this.updateStatus('connecting');
 
     try {
-      this.ws = new WebSocket(this.options.url);
+      // Determine protocol based on current page protocol
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}${this.options.url}`;
+
+      this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
         console.log('[WebSocket] Connected successfully');
@@ -54,15 +63,26 @@ class WebSocketService {
         }
       };
 
-      this.ws.onclose = () => {
-        console.log('[WebSocket] Connection closed');
+      this.ws.onclose = (event) => {
+        console.log('[WebSocket] Connection closed', event.code, event.reason);
         this.updateStatus('disconnected');
-        this.attemptReconnect();
+        if (!this.isManualDisconnect) {
+          this.attemptReconnect();
+        }
       };
 
       this.ws.onerror = (error) => {
         console.error('[WebSocket] Connection error:', error);
         this.updateStatus('error');
+
+        // Only show error toast on first error occurrence
+        if (this.reconnectAttempt === 0) {
+          toast({
+            variant: 'destructive',
+            title: 'Connection Error',
+            description: 'WebSocket connection failed. Attempting to reconnect...'
+          });
+        }
       };
 
     } catch (error) {
@@ -78,21 +98,16 @@ class WebSocketService {
     this.status = newStatus;
     this.options.onStatusChange?.(newStatus);
 
-    // Show toast notifications for important status changes
-    switch (newStatus) {
-      case 'connected':
-        toast({
-          title: 'WebSocket Connected',
-          description: 'Real-time updates are now active',
-        });
-        break;
-      case 'error':
-        toast({
-          variant: 'destructive',
-          title: 'Connection Error',
-          description: 'Failed to establish WebSocket connection',
-        });
-        break;
+    // Show toast notifications only for important status changes
+    if (this.reconnectAttempt === 0) {
+      switch (newStatus) {
+        case 'connected':
+          toast({
+            title: 'Connected',
+            description: 'Real-time updates are now active',
+          });
+          break;
+      }
     }
   }
 
@@ -103,6 +118,11 @@ class WebSocketService {
 
     if (this.reconnectAttempt >= (this.options.reconnectAttempts || 5)) {
       console.log('[WebSocket] Max reconnection attempts reached');
+      toast({
+        variant: 'destructive',
+        title: 'Connection Failed',
+        description: 'Could not establish a stable connection. Please try reconnecting manually.',
+      });
       return;
     }
 
@@ -120,6 +140,8 @@ class WebSocketService {
   }
 
   disconnect() {
+    this.isManualDisconnect = true;
+
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -138,9 +160,10 @@ class WebSocketService {
   }
 
   // Manual reconnect for one-click recovery
-  async manualReconnect() {
+  manualReconnect() {
     console.log('[WebSocket] Manual reconnection requested');
-    this.reconnectAttempt = 0; // Reset attempt counter
+    this.isManualDisconnect = false;
+    this.reconnectAttempt = 0;
     this.disconnect();
     this.connect();
   }
