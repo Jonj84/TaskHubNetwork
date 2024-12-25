@@ -46,7 +46,6 @@ export const selectUserSchema = createSelectSchema(users);
 export const insertTokenTransactionSchema = createInsertSchema(tokenTransactions);
 export const selectTokenTransactionSchema = createSelectSchema(tokenTransactions);
 
-
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
