@@ -12,6 +12,32 @@ class Blockchain {
     console.log('[Blockchain] Initializing blockchain service');
     this.chain = [];
     this.pendingTransactions = [];
+    this.initializeChain();
+  }
+
+  private async initializeChain() {
+    try {
+      // Get all token transactions from database
+      const existingTransactions = await db.query.tokenTransactions.findMany({
+        orderBy: (tokenTransactions, { asc }) => [asc(tokenTransactions.timestamp)]
+      });
+
+      // Convert to blockchain transactions
+      this.chain = existingTransactions.map(tx => ({
+        id: tx.id.toString(),
+        from: tx.fromAddress,
+        to: tx.toAddress,
+        amount: tx.tokenIds.length,
+        timestamp: tx.timestamp.getTime(),
+        type: tx.type,
+        tokenIds: tx.tokenIds,
+        metadata: tx.metadata
+      }));
+
+      console.log('[Blockchain] Initialized with existing transactions:', this.chain.length);
+    } catch (error) {
+      console.error('[Blockchain] Failed to initialize chain:', error);
+    }
   }
 
   async getBalance(address: string): Promise<number> {
