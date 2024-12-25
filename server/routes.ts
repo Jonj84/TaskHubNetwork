@@ -578,49 +578,58 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Update task status based on verification
-      const [updatedTask] = await db
-        .update(tasks)
-        .set({
-          status: verified ? 'completed' : 'in_progress',
-          proofSubmitted: verified ? task.proofSubmitted : null,
-          updated_at: new Date()
-        })
-        .where(eq(tasks.id, taskId))
-        .returning();
+      try {
+        // Handle task verification and escrow release in a transaction
+        const result = await db.transaction(async (tx) => {
+          // Update task status based on verification
+          const [updatedTask] = await tx
+            .update(tasks)
+            .set({
+              status: verified ? 'completed' : 'in_progress',
+              proofSubmitted: verified ? task.proofSubmitted : null,
+              updated_at: new Date()
+            })
+            .where(eq(tasks.id, taskId))
+            .returning();
 
-      // If task is completed, release escrow
-      if (verified && task.escrowTransactionId) {
-        try {
-          console.log('[API] Releasing escrow for task:', {
-            taskId,
-            escrowTx: task.escrowTransactionId,
-            workerId: task.workerId
-          });
+          // If task is completed and has escrow, release it
+          if (verified && task.escrowTransactionId && task.workerId) {
+            console.log('[API] Releasing escrow for task:', {
+              taskId,
+              escrowTx: task.escrowTransactionId,
+              workerId: task.workerId
+            });
 
-          const escrowResult = await blockchainService.releaseEscrow(
-            task.escrowTransactionId,
-            task.workerId!.toString()
-          );
+            const escrowResult = await blockchainService.releaseEscrow(
+              task.escrowTransactionId,
+              task.workerId.toString()
+            );
 
-          console.log('[API] Escrow released successfully:', {
-            taskId,
-            result: escrowResult,
-            timestamp: new Date().toISOString()
-          });
-        } catch (error) {
-          console.error('[API] Escrow release failed:', error);
-          throw new Error('Failed to release escrow tokens');
-        }
+            console.log('[API] Escrow released successfully:', {
+              taskId,
+              result: escrowResult,
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          return updatedTask;
+        });
+
+        console.log('[API] Task verification:', {
+          taskId,
+          verified,
+          timestamp: new Date().toISOString()
+        });
+
+        res.json(result);
+      } catch (error: any) {
+        console.error('[API] Task verification transaction failed:', error);
+        // Rollback transaction and return error
+        res.status(500).json({
+          message: error.message || 'Failed to verify task',
+          code: 'VERIFICATION_ERROR'
+        });
       }
-
-      console.log('[API] Task verification:', {
-        taskId,
-        verified,
-        timestamp: new Date().toISOString()
-      });
-
-      res.json(updatedTask);
     } catch (error: any) {
       console.error('[API] Task verification failed:', error);
       res.status(500).json({
