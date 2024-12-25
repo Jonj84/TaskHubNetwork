@@ -16,12 +16,15 @@ export const tokenTransactions = pgTable("token_transactions", {
   userId: integer("user_id").notNull().references(() => users.id),
   amount: integer("amount").notNull(),
   type: text("type", {
-    enum: ["purchase", "spend", "reward"]
+    enum: ["mint", "transfer", "purchase"]
   }).notNull(),
   status: text("status", {
     enum: ["pending", "completed", "failed"]
   }).notNull().default("pending"),
-  paymentId: text("payment_id"),
+  fromAddress: text("from_address"),
+  toAddress: text("to_address"),
+  blockHash: text("block_hash"),
+  tokenIds: text("token_ids").array(),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
