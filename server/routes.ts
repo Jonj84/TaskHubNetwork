@@ -54,7 +54,8 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Check user's token balance
-      if (req.user.tokenBalance < reward) {
+      const userBalance = await blockchainService.getBalance(req.user.username);
+      if (userBalance < reward) {
         return res.status(400).json({
           message: 'Insufficient token balance',
           code: 'INSUFFICIENT_BALANCE'
@@ -66,24 +67,32 @@ export function registerRoutes(app: Express): Server {
         try {
           // Create escrow transaction first
           const escrowResult = await blockchainService.createTransaction(
-            req.user.username,
+            req.user!.username,
             'ESCROW',
             reward
           );
 
-          // Create task with escrow reference
-          const [newTask] = await tx.insert(tasks).values({
-            title,
-            description,
-            type,
-            reward,
-            status: 'open',
-            creatorId: req.user.id,
-            proofRequired,
-            escrowTransactionId: escrowResult.id,
-            created_at: new Date(),
-            updated_at: new Date()
-          }).returning();
+          // Create task
+          const [newTask] = await tx
+            .insert(tasks)
+            .values({
+              title,
+              description,
+              type,
+              reward,
+              status: 'open',
+              creatorId: req.user!.id,
+              proofRequired,
+              created_at: new Date(),
+              updated_at: new Date()
+            })
+            .returning();
+
+          console.log('[API] Created new task:', {
+            taskId: newTask.id,
+            escrowTx: escrowResult.id,
+            timestamp: new Date().toISOString()
+          });
 
           return {
             task: newTask,
