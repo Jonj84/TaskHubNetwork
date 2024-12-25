@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useUser } from '../hooks/use-user';
 import { useBlockchain } from '../hooks/use-blockchain';
 import { Button } from '@/components/ui/button';
@@ -25,14 +25,35 @@ interface GroupedTransactions {
 }
 
 export default function WalletPage() {
+  // Hooks - maintain consistent order
   const { user } = useUser();
   const { transactions, createTransaction, isLoading, balance } = useBlockchain();
-  const [amount, setAmount] = useState(0);
-  const [recipient, setRecipient] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
 
-  const handleTransaction = async () => {
+  // State declarations
+  const [amount, setAmount] = useState<number>(0);
+  const [recipient, setRecipient] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+
+  // Memoized handlers
+  const groupTransactions = useCallback(() => {
+    if (!transactions || !user?.username) {
+      return { purchases: [], mining: [] };
+    }
+
+    return transactions.reduce<GroupedTransactions>((acc, tx) => {
+      if (tx.from === user.username || tx.to === user.username) {
+        if (tx.type === 'mint' && tx.from === 'SYSTEM') {
+          tx.amount === 1 ? acc.mining.push(tx) : acc.purchases.push(tx);
+        } else {
+          acc.purchases.push(tx);
+        }
+      }
+      return acc;
+    }, { purchases: [], mining: [] });
+  }, [transactions, user?.username]);
+
+  const handleTransaction = useCallback(async () => {
     if (!user) {
       setError("Please login first");
       return;
@@ -59,28 +80,9 @@ export default function WalletPage() {
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [user, amount, recipient, createTransaction]);
 
-  // Filter transactions for current user
-  const userTransactions = transactions.filter(tx =>
-    tx.from === user?.username || tx.to === user?.username
-  );
-
-  // Group transactions by type for better organization
-  const groupedTransactions = userTransactions.reduce<GroupedTransactions>((acc, tx) => {
-    if (tx.type === 'mint' && tx.from === 'SYSTEM') {
-      if (tx.amount === 1) {
-        // Mining reward
-        acc.mining.push(tx);
-      } else {
-        // Token purchase
-        acc.purchases.push(tx);
-      }
-    } else {
-      acc.purchases.push(tx);
-    }
-    return acc;
-  }, { purchases: [], mining: [] });
+  const { purchases, mining } = groupTransactions();
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -93,7 +95,7 @@ export default function WalletPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{typeof balance === 'number' ? balance : 0}</p>
+            <p className="text-3xl font-bold">{balance ?? 0}</p>
             <p className="text-sm text-muted-foreground">Available tokens</p>
           </CardContent>
         </Card>
@@ -157,42 +159,48 @@ export default function WalletPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Block Hash</TableHead>
-                <TableHead>Token IDs</TableHead>
-                <TableHead>Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {[...groupedTransactions.purchases, ...groupedTransactions.mining].map((tx, index) => (
-                <motion.tr
-                  key={tx.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="border-b border-border hover:bg-muted/50"
-                >
-                  <TableCell>
-                    {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {tx.blockHash?.substring(0, 10)}...
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {tx.tokenIds?.map(id => id.substring(0, 6)).join(', ')}
-                  </TableCell>
-                  <TableCell className={tx.to === user?.username ? 'text-green-600' : 'text-red-600'}>
-                    {tx.to === user?.username ? '+' : '-'}
-                    {tx.amount}
-                    {tx.type === 'mint' && tx.from === 'SYSTEM' && tx.amount === 1 ? ' (Mining Reward)' : ' Tokens'}
-                  </TableCell>
-                </motion.tr>
-              ))}
-            </TableBody>
-          </Table>
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Block Hash</TableHead>
+                  <TableHead>Token IDs</TableHead>
+                  <TableHead>Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...purchases, ...mining].map((tx, index) => (
+                  <motion.tr
+                    key={tx.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="border-b border-border hover:bg-muted/50"
+                  >
+                    <TableCell>
+                      {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {tx.blockHash?.substring(0, 10)}...
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {tx.tokenIds?.map(id => id.substring(0, 6)).join(', ')}
+                    </TableCell>
+                    <TableCell className={tx.to === user?.username ? 'text-green-600' : 'text-red-600'}>
+                      {tx.to === user?.username ? '+' : '-'}
+                      {tx.amount}
+                      {tx.type === 'mint' && tx.from === 'SYSTEM' && tx.amount === 1 ? ' (Mining Reward)' : ' Tokens'}
+                    </TableCell>
+                  </motion.tr>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

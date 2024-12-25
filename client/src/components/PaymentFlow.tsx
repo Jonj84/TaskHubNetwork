@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import {
   Dialog,
@@ -16,16 +16,6 @@ import { CreditCard, Percent } from 'lucide-react';
 import { BlockchainLoader } from '@/components/BlockchainLoader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { logErrorToServer } from '@/lib/errorLogging';
-
-// Initialize Stripe outside component
-let stripePromise: Promise<any> | null = null;
-
-const getStripe = () => {
-  if (!stripePromise && import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-    stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
-  }
-  return stripePromise;
-};
 
 interface PaymentFlowProps {
   open: boolean;
@@ -48,33 +38,42 @@ export default function PaymentFlow({
     tier: 'standard'
   });
 
-  // Update price whenever token amount changes
-  useEffect(() => {
-    const calculatePrice = async () => {
-      try {
-        const response = await fetch('/api/tokens/calculate-price', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ amount: tokenAmount }),
-        });
+  const calculatePrice = useCallback(async (amount: number) => {
+    if (!isValidAmount(amount)) return;
 
-        if (!response.ok) {
-          throw new Error(await response.text());
-        }
+    try {
+      const response = await fetch('/api/tokens/calculate-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ amount }),
+      });
 
-        const data = await response.json();
-        setPricing(data);
-      } catch (error) {
-        console.error('Failed to calculate price:', error);
-        logErrorToServer(error as Error, 'price_calculation_failed');
+      if (!response.ok) {
+        throw new Error(await response.text());
       }
-    };
 
-    if (isValidAmount(tokenAmount)) {
-      calculatePrice();
+      const data = await response.json();
+      setPricing(data);
+    } catch (error) {
+      console.error('Failed to calculate price:', error);
+      await logErrorToServer(error as Error, 'price_calculation_failed');
     }
-  }, [tokenAmount]);
+  }, []);
+
+  useEffect(() => {
+    let isSubscribed = true;
+    const timer = setTimeout(() => {
+      if (isSubscribed) {
+        calculatePrice(tokenAmount);
+      }
+    }, 300);
+
+    return () => {
+      isSubscribed = false;
+      clearTimeout(timer);
+    };
+  }, [tokenAmount, calculatePrice]);
 
   const handleCardPayment = async () => {
     try {
@@ -92,29 +91,46 @@ export default function PaymentFlow({
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText);
+        throw new Error(await response.text());
       }
 
-      const { sessionId } = await response.json();
-      const stripe = await getStripe();
+      const { checkoutUrl } = await response.json();
 
-      if (!stripe) {
-        throw new Error('Failed to initialize Stripe');
+      if (!checkoutUrl) {
+        throw new Error('No checkout URL received');
       }
 
-      // Redirect to Stripe checkout
-      const { error } = await stripe.redirectToCheckout({ sessionId });
+      // Open Stripe checkout in a popup window
+      const popupWidth = 450;
+      const popupHeight = 650;
+      const left = (window.screen.width / 2) - (popupWidth / 2);
+      const top = (window.screen.height / 2) - (popupHeight / 2);
 
-      if (error) {
-        throw error;
+      const popup = window.open(
+        checkoutUrl,
+        'Stripe Checkout',
+        `width=${popupWidth},height=${popupHeight},left=${left},top=${top}`
+      );
+
+      if (!popup) {
+        throw new Error('Popup was blocked. Please allow popups and try again.');
       }
 
-      // Close dialog after successful redirect
       onOpenChange(false);
+
+      // Monitor popup status
+      const checkPopup = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(checkPopup);
+          toast({
+            title: 'Payment Complete',
+            description: 'Your tokens will be credited to your account shortly.',
+          });
+        }
+      }, 500);
+
     } catch (error: any) {
       await logErrorToServer(error, 'payment_initiation_failed');
-
       toast({
         variant: 'destructive',
         title: 'Payment Failed',
