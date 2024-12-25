@@ -1,9 +1,8 @@
 import { type Request, Response } from "express";
 import Stripe from "stripe";
 import { db } from "@db";
-import { tokenTransactions, users, tokens } from "@db/schema";
+import { tokenTransactions, users } from "@db/schema";
 import { eq } from "drizzle-orm";
-import { sql } from "drizzle-orm";
 import { blockchainService } from './blockchain';
 
 if (!process.env.STRIPE_SECRET_KEY) {
@@ -12,50 +11,28 @@ if (!process.env.STRIPE_SECRET_KEY) {
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Pricing tiers configuration
-const PRICING_TIERS = {
-  standard: {
-    name: 'Standard',
-    minTokens: 1,
-    maxTokens: 499,
-    pricePerToken: 1.00,
-    bonusPercentage: 0
-  },
-  plus: {
-    name: 'Plus',
-    minTokens: 500,
-    maxTokens: 999,
-    pricePerToken: 1.00,
-    bonusPercentage: 10
-  },
-  premium: {
-    name: 'Premium',
-    minTokens: 1000,
-    maxTokens: 10000,
-    pricePerToken: 1.00,
-    bonusPercentage: 20
-  }
-};
-
+// Calculate price and bonus tokens based on tiers
 function calculatePrice(amount: number) {
+  let bonusPercentage = 0;
   let tier = 'standard';
 
   if (amount >= 1000) {
+    bonusPercentage = 20;
     tier = 'premium';
   } else if (amount >= 500) {
+    bonusPercentage = 10;
     tier = 'plus';
   }
 
-  const selectedTier = PRICING_TIERS[tier as keyof typeof PRICING_TIERS];
-  const basePrice = amount * selectedTier.pricePerToken;
-  const bonusTokens = Math.floor(amount * (selectedTier.bonusPercentage / 100));
+  const basePrice = amount * 1.00; // $1 per token
+  const bonusTokens = Math.floor(amount * (bonusPercentage / 100));
 
   return {
     basePrice: Math.round(basePrice * 100) / 100,
     bonusTokens,
-    bonusPercentage: selectedTier.bonusPercentage,
+    bonusPercentage,
     finalPrice: Math.round(basePrice * 100) / 100,
-    tier: selectedTier.name.toLowerCase()
+    tier
   };
 }
 
@@ -72,13 +49,6 @@ export async function createStripeSession(req: Request, res: Response) {
 
     const priceInfo = calculatePrice(amount);
     const priceInCents = Math.round(priceInfo.finalPrice * 100);
-
-    console.log('Creating Stripe session:', {
-      amount,
-      priceInfo,
-      userId: (req as any).user?.id,
-      username: (req as any).user?.username
-    });
 
     const isReplit = Boolean(req.headers['x-replit-user-id']);
     const host = req.get('host');
@@ -119,14 +89,7 @@ export async function createStripeSession(req: Request, res: Response) {
     });
   } catch (error: any) {
     console.error("Stripe session creation error:", error);
-    if (error.type?.startsWith('Stripe')) {
-      return res.status(400).json({
-        message: error.message,
-        code: error.code,
-        type: error.type
-      });
-    }
-    return res.status(500).json({
+    res.status(500).json({
       message: error.message || "Failed to create payment session",
       code: 'INTERNAL_ERROR'
     });
@@ -193,13 +156,9 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
         }
       );
 
-      //Credit Tokens to the user
-      const creditResult = await creditTokensToUser(parseInt(userId), parseInt(tokenAmount), session.payment_intent as string);
-
       return {
         status: 'success',
-        transaction: blockchainTx,
-        creditResult
+        transaction: blockchainTx
       };
     });
 
@@ -215,8 +174,7 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
         success: true,
         status: 'completed',
         message: 'Payment processed successfully',
-        transaction: result.transaction,
-        creditResult: result.creditResult
+        transaction: result.transaction
       });
     }
 
@@ -257,78 +215,5 @@ export async function handleStripeWebhook(req: Request, res: Response) {
       message: "Webhook error",
       error: error.message
     });
-  }
-}
-
-async function creditTokensToUser(userId: number, tokenAmount: number, paymentId: string) {
-  console.log('Starting token credit process:', {
-    userId,
-    tokenAmount,
-    paymentId,
-    timestamp: new Date().toISOString()
-  });
-
-  try {
-    const result = await db.transaction(async (tx) => {
-      console.log('Beginning database transaction');
-
-      // First check if this payment has already been processed
-      const existingTransaction = await tx.query.tokenTransactions.findFirst({
-        where: eq(tokenTransactions.paymentId, paymentId)
-      });
-
-      if (existingTransaction) {
-        console.log('Payment already processed:', existingTransaction);
-        return { status: 'already_processed', transaction: existingTransaction };
-      }
-
-      // Update user's token balance
-      const [updateResult] = await tx
-        .update(users)
-        .set({
-          tokenBalance: sql`token_balance + ${tokenAmount}`,
-          updated_at: new Date()
-        })
-        .where(eq(users.id, userId))
-        .returning({
-          newBalance: users.tokenBalance,
-          username: users.username
-        });
-
-      console.log('Updated user token balance:', updateResult);
-
-      // Record the transaction
-      const [transactionResult] = await tx.insert(tokenTransactions)
-        .values({
-          userId,
-          amount: tokenAmount,
-          type: 'purchase',
-          status: 'completed',
-          paymentId,
-          timestamp: new Date()
-        })
-        .returning();
-
-      console.log('Recorded token transaction:', transactionResult);
-
-      return {
-        status: 'success',
-        balance: updateResult.newBalance,
-        transaction: transactionResult
-      };
-    });
-
-    console.log('Transaction completed successfully:', result);
-    return result;
-
-  } catch (error) {
-    console.error('Failed to credit tokens:', {
-      error,
-      userId,
-      tokenAmount,
-      paymentId,
-      timestamp: new Date().toISOString()
-    });
-    throw error;
   }
 }
