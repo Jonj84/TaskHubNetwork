@@ -84,6 +84,7 @@ class Blockchain {
   private pendingTransactions: Transaction[];
   private tokenRegistry: Map<string, Token>;
   private readonly maxSupply: number;
+  private balances: Map<string, number>;
 
   constructor() {
     console.log('Initializing blockchain...');
@@ -91,6 +92,7 @@ class Blockchain {
     this.difficulty = 4;
     this.pendingTransactions = [];
     this.tokenRegistry = new Map<string, Token>();
+    this.balances = new Map<string, number>();
     this.maxSupply = 1000000;
     this.createGenesisBlock();
   }
@@ -124,9 +126,15 @@ class Blockchain {
   }
 
   getBalance(address: string): number {
-    const balance = Array.from(this.tokenRegistry.values())
-      .filter(token => token.owner === address)
-      .length;
+    if (!this.balances.has(address)) {
+      // Initialize balance if not exists
+      const balance = Array.from(this.tokenRegistry.values())
+        .filter(token => token.owner === address)
+        .length;
+      this.balances.set(address, balance);
+      console.log('Initialized balance for:', address, 'Balance:', balance);
+    }
+    const balance = this.balances.get(address) || 0;
     console.log('Getting balance for:', address, 'Balance:', balance);
     return balance;
   }
@@ -177,14 +185,32 @@ class Blockchain {
       throw new Error('Failed to mine block');
     }
 
-    // Update token ownership
+    // Update token registry and balances
     tokenIds.forEach(tokenId => {
-      const token = this.tokenRegistry.get(tokenId);
-      if (token) {
-        token.owner = to;
-        token.metadata.previousTransfers.push(transaction.id);
-        console.log('Updated token ownership:', { tokenId, newOwner: to });
+      const token: Token = {
+        id: tokenId,
+        creator: from,
+        owner: to,
+        metadata: {
+          createdAt: new Date(),
+          mintedInBlock: block.hash,
+          previousTransfers: []
+        }
+      };
+      this.tokenRegistry.set(tokenId, token);
+
+      // Update balances
+      if (from !== 'SYSTEM') {
+        const fromBalance = this.getBalance(from);
+        this.balances.set(from, fromBalance - 1);
       }
+      const toBalance = this.getBalance(to);
+      this.balances.set(to, toBalance + 1);
+    });
+
+    console.log('Updated balances:', {
+      from: from !== 'SYSTEM' ? this.getBalance(from) : 'N/A',
+      to: this.getBalance(to)
     });
 
     const result = {
@@ -212,11 +238,14 @@ class Blockchain {
 
     block.mineBlock(minerAddress);
 
-    // Add new tokens to global registry
+    // Add new tokens to global registry and update balances
     const blockTokens = block.getTokens();
     console.log('New block tokens:', Array.from(blockTokens.entries()));
     blockTokens.forEach((token, id) => {
       this.tokenRegistry.set(id, token);
+      // Update balance for mining rewards
+      const ownerBalance = this.getBalance(token.owner);
+      this.balances.set(token.owner, ownerBalance + 1);
     });
 
     this.chain.push(block);
