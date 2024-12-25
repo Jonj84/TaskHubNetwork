@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { User } from '../types';
+import { useLocation } from 'wouter';
 
 type LoginData = {
   username: string;
@@ -8,6 +9,7 @@ type LoginData = {
 
 export function useUser() {
   const queryClient = useQueryClient();
+  const [_, setLocation] = useLocation();
 
   const { data: user, isLoading, error } = useQuery<User>({
     queryKey: ['/api/user'],
@@ -84,6 +86,10 @@ export function useUser() {
     onSuccess: () => {
       // Clear all queries after logout
       queryClient.clear();
+      // Force invalidate user query to ensure it refetches
+      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+      // Redirect to login page
+      setLocation('/login');
     },
   });
 

@@ -573,10 +573,27 @@ export function registerRoutes(app: Express): Server {
 
       // If task is completed, release escrow
       if (verified && task.escrowTransactionId) {
-        await blockchainService.releaseEscrow(
-          task.escrowTransactionId,
-          task.workerId!.toString()
-        );
+        try {
+          console.log('[API] Releasing escrow for task:', {
+            taskId,
+            escrowTx: task.escrowTransactionId,
+            workerId: task.workerId
+          });
+
+          const escrowResult = await blockchainService.releaseEscrow(
+            task.escrowTransactionId,
+            task.workerId!.toString()
+          );
+
+          console.log('[API] Escrow released successfully:', {
+            taskId,
+            result: escrowResult,
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error('[API] Escrow release failed:', error);
+          throw new Error('Failed to release escrow tokens');
+        }
       }
 
       console.log('[API] Task verification:', {

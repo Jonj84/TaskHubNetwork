@@ -83,7 +83,7 @@ class Blockchain {
         });
 
         // Update token ownership and status from ESCROW to worker
-        await tx
+        const updateResult = await tx
           .update(tokens)
           .set({
             owner: toAddress,
@@ -96,7 +96,13 @@ class Blockchain {
               eq(tokens.status, 'escrow'),
               eq(tokens.owner, 'ESCROW')
             )
-          );
+          )
+          .returning();
+
+        console.log('[Blockchain] Updated tokens:', {
+          count: updateResult.length,
+          tokens: updateResult
+        });
 
         // Create release transaction record
         const [releaseTx] = await tx
