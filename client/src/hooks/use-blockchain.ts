@@ -23,9 +23,11 @@ export function useBlockchain() {
 
   const { data: balance = 0, isLoading: balanceLoading } = useQuery<number>({
     queryKey: ['/api/blockchain/balance', user?.username],
-    queryFn: () => {
-      if (!user?.username) return Promise.resolve(0);
-      return blockchainService.getBalance(user.username);
+    queryFn: async () => {
+      if (!user?.username) return 0;
+      const balance = await blockchainService.getBalance(user.username);
+      console.log('[Blockchain] Balance fetched:', { username: user.username, balance });
+      return balance;
     },
     enabled: !!user?.username,
     staleTime: 5000,
@@ -34,11 +36,13 @@ export function useBlockchain() {
   const createTransactionMutation = useMutation({
     mutationFn: async ({ to, amount }: { to: string; amount: number }) => {
       if (!user) throw new Error("Must be logged in");
-
+      console.log('[Blockchain] Creating transaction:', { to, amount });
       try {
-        await blockchainService.createTransaction(to, amount);
-        return true;
+        const result = await blockchainService.createTransaction(to, amount);
+        console.log('[Blockchain] Transaction created:', result);
+        return result;
       } catch (error: any) {
+        console.error('[Blockchain] Transaction failed:', error);
         toast({
           variant: 'destructive',
           title: 'Transaction Failed',

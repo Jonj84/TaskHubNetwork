@@ -39,7 +39,7 @@ class Blockchain {
       // Calculate active tokens
       const result = await db
         .select({
-          activeTokens: sql<number>`COALESCE(COUNT(*), 0)`
+          activeTokens: sql<number>`COUNT(*)`
         })
         .from(tokens)
         .where(
@@ -56,7 +56,7 @@ class Blockchain {
         timestamp: new Date().toISOString()
       });
 
-      return balance; // Return just the number, not an object
+      return balance;
     } catch (error) {
       console.error('[Balance] Error calculating balance:', {
         address,
