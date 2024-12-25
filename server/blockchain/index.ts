@@ -60,6 +60,228 @@ class Blockchain {
     }
   }
 
+  async createTransaction(
+    from: string,
+    to: string,
+    amount: number,
+    metadata?: {
+      paymentId?: string;
+      price?: number;
+      pricePerToken?: number;
+      bonusTokens?: number;
+    }
+  ): Promise<TransactionResult> {
+    console.log('[Blockchain] Creating new transaction:', { from, to, amount, metadata });
+
+    try {
+      return await db.transaction(async (tx) => {
+        // For system transactions (minting), create new tokens
+        if (from === 'SYSTEM') {
+          return this.mintNewTokens(tx, to, amount, metadata);
+        }
+
+        // Get tokens owned by sender
+        const senderTokens = await tx
+          .select()
+          .from(tokens)
+          .where(
+            and(
+              eq(tokens.owner, from),
+              eq(tokens.status, 'active')
+            )
+          )
+          .limit(amount);
+
+        if (senderTokens.length < amount) {
+          throw new Error(`Insufficient tokens: have ${senderTokens.length}, need ${amount}`);
+        }
+
+        console.log('[Blockchain] Transferring tokens:', {
+          from,
+          to,
+          tokenCount: senderTokens.length
+        });
+
+        // Update token ownership
+        const tokenIds = senderTokens.map(token => token.id);
+        await tx
+          .update(tokens)
+          .set({
+            owner: to,
+            metadata: {
+              previousTransfers: sql`array_append(COALESCE(${tokens.metadata}->'previousTransfers', '[]'::jsonb), to_jsonb(now()))`
+            }
+          })
+          .where(sql`id = ANY(${tokenIds}::uuid[])`);
+
+        // Record transaction
+        const [transaction] = await tx.insert(tokenTransactions).values({
+          userId: (await tx.query.users.findFirst({ where: eq(users.username, to) }))?.id,
+          type: 'transfer',
+          status: 'completed',
+          fromAddress: from,
+          toAddress: to,
+          tokenIds,
+          metadata: {
+            timestamp: new Date().toISOString()
+          }
+        }).returning();
+
+        // Add to chain
+        const chainTransaction: Transaction = {
+          id: transaction.id.toString(),
+          from,
+          to,
+          amount: tokenIds.length,
+          timestamp: Date.now(),
+          type: 'transfer',
+          tokenIds
+        };
+
+        this.chain.push(chainTransaction);
+
+        // Invalidate balance caches
+        balanceTracker.invalidateCache(to);
+        balanceTracker.invalidateCache(from);
+
+        // Force sync balances
+        await balanceTracker.forceSyncBalance(to);
+        await balanceTracker.forceSyncBalance(from);
+
+        console.log('[Blockchain] Transaction completed:', {
+          transactionId: transaction.id,
+          tokenCount: tokenIds.length
+        });
+
+        return {
+          id: transaction.id.toString(),
+          tokenIds,
+          blockHash: 'immediate'
+        };
+      });
+    } catch (error) {
+      console.error('[Blockchain] Transaction failed:', error);
+      throw error;
+    }
+  }
+
+  private async mintNewTokens(
+    tx: any,
+    to: string,
+    amount: number,
+    metadata?: {
+      paymentId?: string;
+      price?: number;
+      pricePerToken?: number;
+      bonusTokens?: number;
+    }
+  ): Promise<TransactionResult> {
+    // Generate token IDs
+    const tokenIds = Array.from(
+      { length: amount + (metadata?.bonusTokens || 0) },
+      () => uuidv4()
+    );
+
+    console.log('[Blockchain] Creating new tokens:', {
+      baseTokenCount: amount,
+      bonusTokenCount: metadata?.bonusTokens || 0,
+      totalTokens: tokenIds.length
+    });
+
+    // Create tokens
+    const insertedTokens = await tx.insert(tokens).values(
+      tokenIds.map(id => ({
+        id,
+        creator: 'SYSTEM',
+        owner: to,
+        status: 'active' as const,
+        mintedInBlock: 'immediate',
+        metadata: {
+          createdAt: new Date(),
+          previousTransfers: [],
+          purchaseInfo: metadata ? {
+            paymentId: metadata.paymentId,
+            price: metadata.pricePerToken || 1,
+            purchaseDate: new Date(),
+            reason: 'purchase'
+          } : undefined
+        }
+      }))
+    ).returning();
+
+    console.log('[Blockchain] Tokens created:', {
+      expectedCount: tokenIds.length,
+      actualCount: insertedTokens.length
+    });
+
+    // Record transaction
+    const [transaction] = await tx.insert(tokenTransactions).values({
+      userId: (await tx.query.users.findFirst({ where: eq(users.username, to) }))?.id,
+      type: 'mint',
+      status: 'completed',
+      paymentId: metadata?.paymentId,
+      fromAddress: 'SYSTEM',
+      toAddress: to,
+      tokenIds,
+      metadata: {
+        baseTokens: amount,
+        bonusTokens: metadata?.bonusTokens || 0,
+        pricePerToken: metadata?.pricePerToken,
+        totalPrice: metadata?.price,
+        timestamp: new Date().toISOString()
+      }
+    }).returning();
+
+    // Add to chain
+    const chainTransaction: Transaction = {
+      id: transaction.id.toString(),
+      from: 'SYSTEM',
+      to,
+      amount: tokenIds.length,
+      timestamp: Date.now(),
+      type: 'mint',
+      tokenIds,
+      metadata
+    };
+
+    this.chain.push(chainTransaction);
+    return {
+      id: transaction.id.toString(),
+      tokenIds,
+      blockHash: 'immediate'
+    };
+  }
+
+  getAllTransactions(): Transaction[] {
+    return [...this.chain];
+  }
+
+  getPendingTransactions(): Transaction[] {
+    return [...this.pendingTransactions];
+  }
+
+  async getBalance(username: string): Promise<number> {
+    try {
+      console.log('[Blockchain] Fetching balance for:', username);
+
+      const result = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(tokens)
+        .where(and(
+          eq(tokens.owner, username),
+          eq(tokens.status, 'active')
+        ));
+
+      const balance = Number(result[0]?.count || 0);
+      console.log('[Blockchain] Balance result:', { username, balance });
+
+      return balance;
+    } catch (error) {
+      console.error('[Blockchain] Balance fetch failed:', error);
+      throw error;
+    }
+  }
+
   async getTokens(username: string): Promise<Token[]> {
     try {
       console.log('[Blockchain] Fetching tokens for:', username);
@@ -92,176 +314,6 @@ class Blockchain {
       console.error('[Blockchain] Token fetch failed:', error);
       throw error;
     }
-  }
-
-  async getBalance(username: string): Promise<number> {
-    try {
-      console.log('[Blockchain] Fetching balance for:', username);
-
-      const result = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(tokens)
-        .where(and(
-          eq(tokens.owner, username),
-          eq(tokens.status, 'active')
-        ));
-
-      const balance = Number(result[0]?.count || 0);
-      console.log('[Blockchain] Balance result:', { username, balance });
-
-      return balance;
-    } catch (error) {
-      console.error('[Blockchain] Balance fetch failed:', error);
-      throw error;
-    }
-  }
-
-  async createTransaction(
-    from: string,
-    to: string,
-    amount: number,
-    metadata?: {
-      paymentId?: string;
-      price?: number;
-      pricePerToken?: number;
-      bonusTokens?: number;
-    }
-  ): Promise<TransactionResult> {
-    console.log('[Blockchain] Creating new transaction:', { from, to, amount, metadata });
-
-    try {
-      return await db.transaction(async (tx) => {
-        // Check if payment was already processed
-        if (metadata?.paymentId) {
-          const existingTx = await tx.query.tokenTransactions.findFirst({
-            where: eq(tokenTransactions.paymentId, metadata.paymentId)
-          });
-
-          if (existingTx) {
-            console.log('[Blockchain] Payment already processed:', {
-              paymentId: metadata.paymentId,
-              existingTxId: existingTx.id
-            });
-            throw new Error('Payment already processed');
-          }
-        }
-
-        // Get user for transaction
-        const [toUser] = await tx
-          .select()
-          .from(users)
-          .where(eq(users.username, to))
-          .limit(1);
-
-        if (!toUser) {
-          throw new Error(`Recipient user not found: ${to}`);
-        }
-
-        // Generate token IDs
-        const tokenIds = Array.from(
-          { length: amount + (metadata?.bonusTokens || 0) },
-          () => uuidv4()
-        );
-
-        console.log('[Blockchain] Creating tokens:', {
-          baseTokenCount: amount,
-          bonusTokenCount: metadata?.bonusTokens || 0,
-          totalTokens: tokenIds.length
-        });
-
-        // Create tokens
-        const insertedTokens = await tx.insert(tokens).values(
-          tokenIds.map(id => ({
-            id,
-            creator: from,
-            owner: to,
-            status: 'active' as const,
-            mintedInBlock: 'immediate',
-            metadata: {
-              createdAt: new Date(),
-              previousTransfers: [],
-              purchaseInfo: {
-                paymentId: metadata?.paymentId,
-                price: metadata?.pricePerToken || 1,
-                purchaseDate: new Date(),
-                reason: 'purchase'
-              }
-            }
-          }))
-        ).returning();
-
-        console.log('[Blockchain] Tokens created:', {
-          expectedCount: tokenIds.length,
-          actualCount: insertedTokens.length
-        });
-
-        // Record transaction
-        const [transaction] = await tx.insert(tokenTransactions).values({
-          userId: toUser.id,
-          type: from === 'SYSTEM' ? 'mint' : 'transfer',
-          status: 'completed',
-          paymentId: metadata?.paymentId,
-          fromAddress: from,
-          toAddress: to,
-          tokenIds,
-          metadata: {
-            baseTokens: amount,
-            bonusTokens: metadata?.bonusTokens || 0,
-            pricePerToken: metadata?.pricePerToken,
-            totalPrice: metadata?.price,
-            timestamp: new Date().toISOString()
-          }
-        }).returning();
-
-        // Add to chain
-        const chainTransaction: Transaction = {
-          id: transaction.id.toString(),
-          from,
-          to,
-          amount: tokenIds.length,
-          timestamp: Date.now(),
-          type: from === 'SYSTEM' ? 'mint' : 'transfer',
-          tokenIds,
-          metadata
-        };
-
-        this.chain.push(chainTransaction);
-
-        // After successful transaction, immediately invalidate balance cache
-        balanceTracker.invalidateCache(to);
-        if (from !== 'SYSTEM') {
-          balanceTracker.invalidateCache(from);
-        }
-
-        // Force sync balances to ensure accuracy
-        await balanceTracker.forceSyncBalance(to);
-        if (from !== 'SYSTEM') {
-          await balanceTracker.forceSyncBalance(from);
-        }
-
-        console.log('[Blockchain] Transaction completed:', {
-          transactionId: transaction.id,
-          tokenCount: tokenIds.length
-        });
-
-        return {
-          id: transaction.id.toString(),
-          tokenIds,
-          blockHash: 'immediate'
-        };
-      });
-    } catch (error) {
-      console.error('[Blockchain] Transaction failed:', error);
-      throw error;
-    }
-  }
-
-  getAllTransactions(): Transaction[] {
-    return [...this.chain];
-  }
-
-  getPendingTransactions(): Transaction[] {
-    return [...this.pendingTransactions];
   }
 }
 
