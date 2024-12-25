@@ -1,82 +1,57 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
 // WebSocket connection states
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
-interface WebSocketConfig {
-  url: string;
-  onStatusChange?: (status: WebSocketStatus) => void;
-  onMessage?: (data: any) => void;
-  reconnectAttempts?: number;
-  initialBackoff?: number;
-  maxBackoff?: number;
+interface WebSocketMessage {
+  type: string;
+  data?: any;
 }
 
-interface WebSocketService {
-  connect: () => void;
-  disconnect: () => void;
-  manualReconnect: () => void;
-  send: (message: any) => void;
-}
+export function useWebSocket() {
+  const [status, setStatus] = useState<WebSocketStatus>('disconnected');
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const pingIntervalRef = useRef<NodeJS.Timeout>();
+  const { toast } = useToast();
 
-function createWebSocketService(config: WebSocketConfig): WebSocketService {
-  const {
-    url,
-    onStatusChange = () => {},
-    onMessage = () => {},
-    reconnectAttempts = 5,
-    initialBackoff = 1000,
-    maxBackoff = 30000
-  } = config;
+  // Get the WebSocket URL from the current window location
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  const wsUrl = `${protocol}//${host}/api/ws`;
 
-  let ws: WebSocket | null = null;
-  let reconnectAttempt = 0;
-  let backoffDelay = initialBackoff;
-  let reconnectTimeout: NodeJS.Timeout | null = null;
-  let heartbeatInterval: NodeJS.Timeout | null = null;
-  let lastMessageTime = 0;
+  const cleanup = useCallback(() => {
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = undefined;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = undefined;
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.close();
+    }
+    wsRef.current = null;
+  }, []);
 
-  const cleanup = () => {
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
-      heartbeatInterval = null;
-    }
-    if (reconnectTimeout) {
-      clearTimeout(reconnectTimeout);
-      reconnectTimeout = null;
-    }
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.close(1000, 'Cleanup');
-    }
-  };
-
-  const connect = () => {
-    if (ws?.readyState === WebSocket.CONNECTING) {
-      console.log('[WebSocket] Already connecting, skipping reconnect');
-      return;
-    }
+  const connect = useCallback(() => {
+    cleanup();
 
     try {
-      console.log('[WebSocket] Attempting connection to:', url);
-      cleanup();
-
-      ws = new WebSocket(url);
-      lastMessageTime = Date.now();
-      onStatusChange('connecting');
+      console.log('[WebSocket] Connecting to:', wsUrl);
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      setStatus('connecting');
 
       ws.onopen = () => {
         console.log('[WebSocket] Connected successfully');
-        reconnectAttempt = 0;
-        backoffDelay = initialBackoff;
-        onStatusChange('connected');
+        setStatus('connected');
 
         // Start heartbeat
-        if (heartbeatInterval) {
-          clearInterval(heartbeatInterval);
-        }
-        heartbeatInterval = setInterval(() => {
-          if (ws?.readyState === WebSocket.OPEN) {
+        pingIntervalRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
             try {
               ws.send(JSON.stringify({ type: 'ping' }));
             } catch (error) {
@@ -88,15 +63,28 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          lastMessageTime = Date.now();
+          const message = JSON.parse(event.data) as WebSocketMessage;
 
-          if (data.type !== 'pong') {
-            console.log('[WebSocket] Received message:', data);
+          // Handle specific message types
+          switch (message.type) {
+            case 'error':
+              toast({
+                title: 'Error',
+                description: message.data?.message || 'An error occurred',
+                variant: 'destructive',
+              });
+              break;
+            case 'balance_update':
+              console.log('[WebSocket] Balance updated:', message.data);
+              break;
+            case 'pong':
+              // Heartbeat response received
+              break;
+            default:
+              console.log('[WebSocket] Message received:', message);
           }
-          onMessage(data);
         } catch (error) {
-          console.error('[WebSocket] Message parse error:', error);
+          console.error('[WebSocket] Failed to parse message:', error);
         }
       };
 
@@ -104,148 +92,70 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
         console.log('[WebSocket] Connection closed:', {
           code: event.code,
           reason: event.reason,
-          wasClean: event.wasClean,
-          timeSinceLastMessage: Date.now() - lastMessageTime
+          wasClean: event.wasClean
         });
 
         cleanup();
-        onStatusChange('disconnected');
+        setStatus('disconnected');
 
-        // Only attempt reconnect if not a clean close and haven't reached limit
-        if (!event.wasClean && reconnectAttempt < reconnectAttempts) {
-          const delay = Math.min(backoffDelay * Math.pow(2, reconnectAttempt), maxBackoff);
-          console.log('[WebSocket] Scheduling reconnect:', {
-            attempt: reconnectAttempt + 1,
-            delay: `${delay}ms`
-          });
-
-          reconnectTimeout = setTimeout(() => {
-            reconnectAttempt++;
+        // Attempt to reconnect after a delay
+        if (!event.wasClean) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            console.log('[WebSocket] Attempting to reconnect...');
             connect();
-          }, delay);
-        } else if (reconnectAttempt >= reconnectAttempts) {
-          console.log('[WebSocket] Max reconnection attempts reached');
-          onStatusChange('error');
+          }, 5000);
         }
       };
 
-      ws.onerror = (event) => {
-        console.error('[WebSocket] Connection error:', {
-          type: event.type,
-          timestamp: new Date().toISOString(),
-          timeSinceLastMessage: Date.now() - lastMessageTime
-        });
-        onStatusChange('error');
-      };
+      ws.onerror = (error) => {
+        console.error('[WebSocket] Connection error:', error);
+        setStatus('error');
 
+        toast({
+          title: 'Connection Error',
+          description: 'Lost connection to server. Attempting to reconnect...',
+          variant: 'destructive',
+        });
+      };
     } catch (error) {
       console.error('[WebSocket] Setup error:', error);
+      setStatus('error');
       cleanup();
-      onStatusChange('error');
     }
-  };
+  }, [wsUrl, cleanup, toast]);
 
-  const disconnect = () => {
-    console.log('[WebSocket] Manual disconnect initiated');
-    if (ws?.readyState === WebSocket.OPEN) {
+  const send = useCallback((message: WebSocketMessage) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
       try {
-        ws.close(1000, 'User initiated disconnect');
+        wsRef.current.send(JSON.stringify(message));
       } catch (error) {
-        console.error('[WebSocket] Disconnect error:', error);
-      }
-    }
-    cleanup();
-    ws = null;
-  };
-
-  const manualReconnect = () => {
-    console.log('[WebSocket] Manual reconnection requested');
-    disconnect();
-    reconnectAttempt = 0;
-    backoffDelay = initialBackoff;
-    connect();
-  };
-
-  const send = (message: any) => {
-    if (ws?.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(JSON.stringify(message));
-      } catch (error) {
-        console.error('[WebSocket] Send error:', error);
+        console.error('[WebSocket] Failed to send message:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to send message',
+          variant: 'destructive',
+        });
       }
     } else {
-      console.warn('[WebSocket] Cannot send message, connection not open');
+      console.warn('[WebSocket] Cannot send message - connection not open');
     }
-  };
-
-  return {
-    connect,
-    disconnect,
-    manualReconnect,
-    send
-  };
-}
-
-export function useWebSocket() {
-  const [status, setStatus] = useState<WebSocketStatus>('disconnected');
-  const { toast } = useToast();
-
-  // Ensure WebSocket URL is properly constructed
-  const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`;
-
-  const [service] = useState(() => 
-    createWebSocketService({
-      url: wsUrl,
-      onStatusChange: (newStatus) => {
-        console.log('[WebSocket] Status changed:', newStatus);
-        setStatus(newStatus);
-
-        if (newStatus === 'error') {
-          toast({
-            title: 'Connection Error',
-            description: 'Lost connection to server. Attempting to reconnect...',
-            variant: 'destructive'
-          });
-        }
-      },
-      onMessage: (data) => {
-        if (data.type === 'error') {
-          toast({
-            title: 'Error',
-            description: data.data.message,
-            variant: 'destructive'
-          });
-        }
-      },
-      reconnectAttempts: 5,
-      initialBackoff: 1000,
-      maxBackoff: 30000
-    })
-  );
-
-  useEffect(() => {
-    console.log('[WebSocket] Initializing connection to:', wsUrl);
-    service.connect();
-
-    return () => {
-      console.log('[WebSocket] Cleaning up connection');
-      service.disconnect();
-    };
-  }, [service, wsUrl]);
+  }, [toast]);
 
   const reconnect = useCallback(() => {
-    console.log('[WebSocket] Manual reconnection requested');
-    service.manualReconnect();
-  }, [service]);
+    console.log('[WebSocket] Manual reconnection initiated');
+    connect();
+  }, [connect]);
 
-  const send = useCallback((message: any) => {
-    service.send(message);
-  }, [service]);
+  // Set up connection on mount
+  useEffect(() => {
+    connect();
+    return cleanup;
+  }, [connect, cleanup]);
 
   return {
     status,
-    reconnect,
     send,
+    reconnect,
     isConnected: status === 'connected'
   };
 }

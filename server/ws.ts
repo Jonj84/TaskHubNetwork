@@ -2,13 +2,13 @@ import type { Server } from "http";
 import type { Request } from "express";
 import { log } from "./vite";
 import { balanceTracker } from './services/balanceTracker';
-import { createWebSocketServer } from "./websocket";
+import { WebSocket, WebSocketServer } from 'ws';
 
 // WebSocket connection states
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 interface ClientConnection {
-  ws: any; // WebSocket instance
+  ws: WebSocket;
   userId?: string;
   lastPing: number;
   isAlive: boolean;
@@ -22,7 +22,7 @@ interface WebSocketMessage {
   data?: any;
 }
 
-let wsServer: any = null; // WebSocket.Server instance
+let wsServer: WebSocketServer | null = null;
 let wsManager: WebSocketManager | null = null;
 
 class WebSocketManager {
@@ -34,6 +34,12 @@ class WebSocketManager {
   constructor(server: Server) {
     try {
       log('[WebSocket] Initializing WebSocket server');
+      wsServer = new WebSocketServer({ 
+        noServer: true,
+        clientTracking: true,
+        perMessageDeflate: false
+      });
+
       this.setupServer(server);
       this.pingInterval = setInterval(() => this.checkConnections(), WebSocketManager.PING_INTERVAL);
       log('[WebSocket] Manager initialized successfully');
@@ -43,59 +49,67 @@ class WebSocketManager {
     }
   }
 
-  private async setupServer(server: Server) {
-    try {
-      wsServer = await createWebSocketServer();
-
-      server.on('upgrade', async (request: Request, socket: any, head: any) => {
-        try {
-          // Skip Vite HMR connections
-          if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
-            log('[WebSocket] Skipping Vite HMR connection');
-            socket.destroy();
-            return;
-          }
-
-          // Parse URL path
-          const path = new URL(request.url || '', `http://${request.headers.host}`).pathname;
-
-          // Only handle WebSocket API connections
-          if (path !== WebSocketManager.WS_PATH) {
-            log('[WebSocket] Invalid WebSocket path:', path);
-            socket.destroy();
-            return;
-          }
-
-          if (!wsServer) {
-            throw new Error('WebSocket server not initialized');
-          }
-
-          // Extract session data if available
-          const userId = (request as any).session?.passport?.user?.id;
-          log(`[WebSocket] Upgrade request from user: ${userId || 'anonymous'}`);
-
-          // Handle upgrade with proper error handling
-          wsServer.handleUpgrade(request, socket, head, (ws: any) => {
-            this.handleConnection(ws, userId).catch(error => {
-              log(`[WebSocket] Connection handler error: ${error.message}`);
-              ws.terminate();
-            });
-          });
-        } catch (error) {
-          log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
+  private setupServer(server: Server) {
+    server.on('upgrade', (request: Request, socket: any, head: Buffer) => {
+      try {
+        // Skip Vite HMR connections
+        if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
+          log('[WebSocket] Skipping Vite HMR connection');
           socket.destroy();
+          return;
         }
-      });
-    } catch (error) {
-      log(`[WebSocket] Server setup error: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
+
+        const urlPath = new URL(
+          request.url || '', 
+          `http://${request.headers.host || 'localhost'}`
+        ).pathname;
+
+        log(`[WebSocket] Upgrade request for path: ${urlPath}`);
+
+        if (urlPath !== WebSocketManager.WS_PATH) {
+          log('[WebSocket] Invalid WebSocket path:', urlPath);
+          socket.destroy();
+          return;
+        }
+
+        if (!wsServer) {
+          throw new Error('WebSocket server not initialized');
+        }
+
+        const userId = (request as any).session?.passport?.user?.id;
+        log(`[WebSocket] Upgrade request from user: ${userId || 'anonymous'}`);
+
+        wsServer.handleUpgrade(request, socket, head, (ws) => {
+          this.handleConnection(ws, userId).catch(error => {
+            log(`[WebSocket] Connection handler error: ${error.message}`);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.close(1011, 'Internal Server Error');
+            }
+          });
+        });
+      } catch (error) {
+        log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
+        socket.destroy();
+      }
+    });
   }
 
-  private async handleConnection(ws: any, userId?: string) {
+  private async handleConnection(ws: WebSocket, userId?: string) {
     const sessionId = Math.random().toString(36).substring(2);
-
     log(`[WebSocket] New connection: ${sessionId}${userId ? ` for user ${userId}` : ''}`);
+
+    // Clean up existing connections for this user
+    if (userId) {
+      Array.from(this.connections.entries()).forEach(([oldSessionId, connection]) => {
+        if (connection.userId === userId) {
+          log(`[WebSocket] Cleaning up old connection for user: ${userId}`);
+          if (connection.ws.readyState === WebSocket.OPEN) {
+            connection.ws.close(1000, 'New connection established');
+          }
+          this.connections.delete(oldSessionId);
+        }
+      });
+    }
 
     const connection: ClientConnection = {
       ws,
@@ -108,11 +122,10 @@ class WebSocketManager {
 
     this.connections.set(sessionId, connection);
 
-    // Set up event handlers
     ws.on('pong', () => this.handlePong(sessionId));
-    ws.on('message', (data: any) => this.handleMessage(sessionId, data));
+    ws.on('message', (data: WebSocket.RawData) => this.handleMessage(sessionId, data));
     ws.on('close', () => this.handleClose(sessionId));
-    ws.on('error', (error: Error) => {
+    ws.on('error', (error) => {
       log(`[WebSocket] Error for connection ${sessionId}: ${error.message}`);
       this.handleClose(sessionId);
     });
@@ -139,7 +152,7 @@ class WebSocketManager {
     }
   }
 
-  private handleMessage(sessionId: string, data: any) {
+  private handleMessage(sessionId: string, data: WebSocket.RawData) {
     try {
       const connection = this.connections.get(sessionId);
       if (!connection) {
@@ -147,7 +160,6 @@ class WebSocketManager {
         return;
       }
 
-      // Parse message data
       const message = JSON.parse(data.toString()) as WebSocketMessage;
 
       if (message.type !== 'ping') {
@@ -186,8 +198,8 @@ class WebSocketManager {
     }
   }
 
-  private sendMessage(ws: any, message: WebSocketMessage) {
-    if (ws.readyState === 1) { // WebSocket.OPEN
+  private sendMessage(ws: WebSocket, message: WebSocketMessage) {
+    if (ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(JSON.stringify(message));
       } catch (error) {
@@ -224,7 +236,7 @@ class WebSocketManager {
   public broadcastToUser(userId: string, type: string, data: any) {
     log(`[WebSocket] Broadcasting to user ${userId}: ${type}`);
     this.connections.forEach(connection => {
-      if (connection.userId === userId && connection.ws.readyState === 1) { // WebSocket.OPEN
+      if (connection.userId === userId && connection.ws.readyState === WebSocket.OPEN) {
         try {
           this.sendMessage(connection.ws, { type, data });
         } catch (error) {
@@ -236,9 +248,11 @@ class WebSocketManager {
 
   public cleanup() {
     clearInterval(this.pingInterval);
-    this.connections.forEach((connection) => {
+    this.connections.forEach(connection => {
       try {
-        connection.ws.close(1000, 'Server shutdown');
+        if (connection.ws.readyState === WebSocket.OPEN) {
+          connection.ws.close(1000, 'Server shutdown');
+        }
       } catch (error) {
         log(`[WebSocket] Cleanup error: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -249,11 +263,14 @@ class WebSocketManager {
 
 export function setupWebSocket(server: Server) {
   try {
-    log('[WebSocket] Setting up WebSocket server');
-    if (!wsManager) {
-      wsManager = new WebSocketManager(server);
-      log('[WebSocket] WebSocket manager created successfully');
+    if (wsManager) {
+      log('[WebSocket] Cleaning up existing WebSocket manager');
+      wsManager.cleanup();
     }
+
+    log('[WebSocket] Setting up new WebSocket server');
+    wsManager = new WebSocketManager(server);
+    log('[WebSocket] WebSocket manager created successfully');
     return wsServer;
   } catch (error) {
     log(`[WebSocket] Setup failed: ${error instanceof Error ? error.message : String(error)}`);
