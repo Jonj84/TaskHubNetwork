@@ -118,7 +118,6 @@ export function registerRoutes(app: Express): Server {
       }
 
       const result = await verifyStripePayment(req.params.sessionId);
-      res.json(result);
 
       if (result.success) {
         // Create tokens using blockchain service
@@ -146,7 +145,8 @@ export function registerRoutes(app: Express): Server {
 
         res.json({ 
           success: true,
-          message: 'Payment verified and tokens created successfully'
+          message: 'Payment verified and tokens created successfully',
+          transaction: response
         });
       } else {
         throw new Error(result.message || 'Payment verification failed');
