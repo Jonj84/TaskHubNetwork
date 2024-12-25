@@ -1,8 +1,8 @@
 import { type Request, Response } from "express";
 import Stripe from "stripe";
 import { db } from "@db";
-import { tokenTransactions, users } from "@db/schema";
-import { eq, sql } from "drizzle-orm";
+import { tokenTransactions, users, tokenProcessingQueue } from "@db/schema";
+import { eq } from "drizzle-orm";
 import {blockchainService} from './blockchain'; // Assuming blockchain service is in a separate file
 
 if (!process.env.STRIPE_SECRET_KEY) {
@@ -217,7 +217,6 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       throw new Error('Payment session not found');
     }
 
-    // Check payment status
     if (session.payment_status !== 'paid') {
       console.log('Payment not completed:', {
         sessionId,
@@ -239,78 +238,60 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       throw new Error('Missing required metadata in session');
     }
 
-    // Credit tokens to user in a transaction
+    // Add to processing queue instead of direct credit
     const result = await db.transaction(async (tx) => {
       // Check if payment was already processed
-      const existingTransaction = await tx
+      const existingQueue = await tx
         .select()
-        .from(tokenTransactions)
-        .where(eq(tokenTransactions.paymentId, session.payment_intent as string))
+        .from(tokenProcessingQueue)
+        .where(eq(tokenProcessingQueue.paymentId, session.payment_intent as string))
         .limit(1);
 
-      if (existingTransaction?.length > 0) {
+      if (existingQueue.length > 0) {
         return {
-          status: 'already_processed',
-          transaction: existingTransaction[0]
+          status: 'already_queued',
+          queueItem: existingQueue[0]
         };
       }
 
-      // Update user's token balance
-      const [updatedUser] = await tx
-        .update(users)
-        .set({
-          tokenBalance: sql`${users.tokenBalance} + ${parseInt(tokenAmount, 10)}`,
-          updated_at: new Date()
-        })
-        .where(eq(users.id, parseInt(userId, 10)))
-        .returning();
-
-      console.log('Updated user balance:', updatedUser);
-
-      // Create blockchain transaction if needed
-      const blockchainTx = await blockchainService.createTransaction(
-        'SYSTEM', // From system address
-        updatedUser.username, // To user's address (using username as address)
-        parseInt(tokenAmount, 10)
-      );
-
-      console.log('Created blockchain transaction:', blockchainTx);
-
-      // Record the transaction
-      const [transaction] = await tx
-        .insert(tokenTransactions)
+      // Create queue entry
+      const [queueEntry] = await tx
+        .insert(tokenProcessingQueue)
         .values({
-          type: 'purchase',
-          amount: parseInt(tokenAmount, 10),
           userId: parseInt(userId, 10),
-          status: 'completed',
-          fromAddress: 'SYSTEM',
-          toAddress: updatedUser.username,
-          blockHash: blockchainTx?.hash,
-          timestamp: new Date()
+          amount: parseInt(tokenAmount, 10),
+          paymentId: session.payment_intent as string,
+          metadata: {
+            sessionId,
+            paymentIntent: session.payment_intent,
+            customerEmail: session.customer_details?.email,
+            purchaseDate: new Date().toISOString()
+          }
         })
         .returning();
-
-      console.log('Recorded transaction:', transaction);
 
       return {
-        status: 'success',
-        newBalance: updatedUser.tokenBalance,
-        transaction,
-        blockchainTx
+        status: 'queued',
+        queueEntry
       };
     });
 
-    console.log('Transaction completed:', result);
-
-    // Return success response with updated balance
-    res.json({
-      success: true,
-      tokenAmount: parseInt(tokenAmount, 10),
-      newBalance: result.newBalance,
-      paymentId: session.payment_intent,
-      blockchainTxId: result.blockchainTx?.id
-    });
+    // Return appropriate response based on queue status
+    if (result.status === 'already_queued') {
+      res.json({
+        success: true,
+        status: 'processing',
+        message: 'Your tokens are being processed',
+        queueId: result.queueItem.id
+      });
+    } else {
+      res.json({
+        success: true,
+        status: 'queued',
+        message: 'Your tokens have been queued for processing',
+        queueId: result.queueEntry.id
+      });
+    }
 
   } catch (error: any) {
     console.error('Payment verification error:', {
@@ -323,61 +304,135 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
   }
 }
 
-export async function handleStripeWebhook(req: Request, res: Response) {
-    console.log('Handling Stripe Webhook');
-    const sig = req.headers["stripe-signature"];
+// Token processing function - should be called by a background job
+async function processTokenGeneration(queueId: number) {
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Get queue entry and lock it
+      const [queueEntry] = await tx
+        .select()
+        .from(tokenProcessingQueue)
+        .where(eq(tokenProcessingQueue.id, queueId))
+        .limit(1);
 
-    try {
-        if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
-            console.error('Missing Stripe webhook configuration');
-            throw new Error("Missing Stripe webhook configuration");
-        }
+      if (!queueEntry || queueEntry.status === 'completed') {
+        return null;
+      }
 
-        const event = stripe.webhooks.constructEvent(
-            req.body,
-            sig,
-            process.env.STRIPE_WEBHOOK_SECRET
+      // Update queue status to processing
+      await tx
+        .update(tokenProcessingQueue)
+        .set({ status: 'processing', updated_at: new Date() })
+        .where(eq(tokenProcessingQueue.id, queueId));
+
+      try {
+        // Generate blockchain transaction
+        const [user] = await tx
+          .select()
+          .from(users)
+          .where(eq(users.id, queueEntry.userId))
+          .limit(1);
+
+        const blockchainTx = await blockchainService.createTransaction(
+          'SYSTEM',
+          user.username,
+          queueEntry.amount
         );
 
-        console.log('Received Stripe webhook event:', {
-            type: event.type,
-            id: event.id
-        });
+        // Update user's balance
+        const [updatedUser] = await tx
+          .update(users)
+          .set({
+            tokenBalance: user.tokenBalance + queueEntry.amount,
+            updated_at: new Date()
+          })
+          .where(eq(users.id, queueEntry.userId))
+          .returning();
 
-        if (event.type === "checkout.session.completed") {
-            const session = event.data.object as Stripe.Checkout.Session;
-            const { tokenAmount, userId } = session.metadata || {};
+        // Create transaction record
+        const [transaction] = await tx
+          .insert(tokenTransactions)
+          .values({
+            userId: queueEntry.userId,
+            amount: queueEntry.amount,
+            type: 'purchase',
+            status: 'completed',
+            paymentId: queueEntry.paymentId,
+            fromAddress: 'SYSTEM',
+            toAddress: user.username,
+            blockHash: blockchainTx?.hash,
+            metadata: queueEntry.metadata,
+            timestamp: new Date()
+          })
+          .returning();
 
-            if (!tokenAmount || !userId) {
-                console.error("Missing metadata in Stripe session:", {session});
-                throw new Error("Missing metadata in Stripe session");
-            }
+        // Mark queue entry as completed
+        await tx
+          .update(tokenProcessingQueue)
+          .set({
+            status: 'completed',
+            updated_at: new Date()
+          })
+          .where(eq(tokenProcessingQueue.id, queueId));
 
-            console.log('Payment completed:', {
-                tokenAmount,
-                userId,
-                sessionId: session.id
-            });
-
-            // Credit tokens to user's account
-            await creditTokensToUser(
-                parseInt(userId, 10),
-                parseInt(tokenAmount, 10),
-                session.payment_intent as string
-            );
-        }
-
-        res.json({ received: true });
-    } catch (error: any) {
-        console.error("Stripe webhook error:", {
+        return {
+          success: true,
+          transaction,
+          user: updatedUser
+        };
+      } catch (error: any) {
+        // Update queue entry with error
+        await tx
+          .update(tokenProcessingQueue)
+          .set({
+            status: 'failed',
             error: error.message,
-            type: error.type,
-            stack: error.stack
-        });
+            retryCount: queueEntry.retryCount + 1,
+            updated_at: new Date()
+          })
+          .where(eq(tokenProcessingQueue.id, queueId));
 
-        res.status(400).json({
-            message: "Webhook error",
-            error: error.message
-        });
+        throw error;
+      }
+    });
+
+    return result;
+  } catch (error) {
+    console.error('Token processing error:', error);
+    throw error;
+  }
+}
+
+export async function handleStripeWebhook(req: Request, res: Response) {
+  const sig = req.headers["stripe-signature"];
+
+  try {
+    if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
+      throw new Error("Missing Stripe webhook configuration");
     }
+
+    const event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+
+    console.log('Received Stripe webhook event:', {
+      type: event.type,
+      id: event.id
+    });
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      await verifyStripePayment(session.id, res);
+    }
+
+    res.json({ received: true });
+  } catch (error: any) {
+    console.error("Stripe webhook error:", error);
+    res.status(400).json({
+      message: "Webhook error",
+      error: error.message
+    });
+  }
 }
