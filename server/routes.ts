@@ -35,10 +35,10 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { title, description, type, reward, proofType, proofRequired } = req.body;
+      const { title, description, type, reward, proofType } = req.body;
 
       // Validate required fields
-      if (!title || !description || !type || !reward || !proofType || !proofRequired) {
+      if (!title || !description || !type || !reward || !proofType) {
         return res.status(400).json({
           message: 'Missing required fields',
           code: 'INVALID_PARAMETERS'
@@ -55,6 +55,12 @@ export function registerRoutes(app: Express): Server {
 
       // Check user's token balance
       const userBalance = await blockchainService.getBalance(req.user.username);
+      console.log('[API] User balance check:', {
+        username: req.user.username,
+        balance: userBalance,
+        requiredTokens: reward
+      });
+
       if (userBalance < reward) {
         return res.status(400).json({
           message: 'Insufficient token balance',
@@ -66,13 +72,25 @@ export function registerRoutes(app: Express): Server {
       const result = await db.transaction(async (tx) => {
         try {
           // Create escrow transaction first
+          console.log('[API] Creating escrow transaction:', {
+            from: req.user!.username,
+            amount: reward,
+            timestamp: new Date().toISOString()
+          });
+
           const escrowResult = await blockchainService.createTransaction(
             req.user!.username,
             'ESCROW',
             reward
           );
 
-          // Create task
+          console.log('[API] Escrow transaction created:', {
+            transactionId: escrowResult.id,
+            tokenIds: escrowResult.tokenIds,
+            timestamp: new Date().toISOString()
+          });
+
+          // Create task with escrow transaction ID
           const [newTask] = await tx
             .insert(tasks)
             .values({
@@ -83,7 +101,7 @@ export function registerRoutes(app: Express): Server {
               status: 'open',
               creatorId: req.user!.id,
               proofType,
-              proofRequired,
+              proofRequired: "none",
               escrowTransactionId: escrowResult.id,
               created_at: new Date(),
               updated_at: new Date()
