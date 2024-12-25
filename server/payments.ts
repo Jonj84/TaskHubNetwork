@@ -242,14 +242,16 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
     // Credit tokens to user in a transaction
     const result = await db.transaction(async (tx) => {
       // Check if payment was already processed
-      const existingTransaction = await tx.query.tokenTransactions.findFirst({
-        where: eq(tokenTransactions.paymentId, session.payment_intent as string),
-      });
+      const existingTransaction = await tx
+        .select()
+        .from(tokenTransactions)
+        .where(eq(tokenTransactions.paymentId, session.payment_intent as string))
+        .limit(1);
 
-      if (existingTransaction?.status === 'completed') {
+      if (existingTransaction?.length > 0) {
         return {
           status: 'already_processed',
-          transaction: existingTransaction
+          transaction: existingTransaction[0]
         };
       }
 
@@ -257,18 +259,15 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       const [updatedUser] = await tx
         .update(users)
         .set({
-          tokenBalance: sql`token_balance + ${parseInt(tokenAmount, 10)}`,
+          tokenBalance: sql`${users.tokenBalance} + ${parseInt(tokenAmount, 10)}`,
           updated_at: new Date()
         })
         .where(eq(users.id, parseInt(userId, 10)))
-        .returning({ 
-          newBalance: users.tokenBalance,
-          username: users.username 
-        });
+        .returning();
 
       console.log('Updated user balance:', updatedUser);
 
-      // Create blockchain transaction
+      // Create blockchain transaction if needed
       const blockchainTx = await blockchainService.createTransaction(
         'SYSTEM', // From system address
         updatedUser.username, // To user's address (using username as address)
@@ -281,11 +280,13 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       const [transaction] = await tx
         .insert(tokenTransactions)
         .values({
-          userId: parseInt(userId, 10),
-          amount: parseInt(tokenAmount, 10),
           type: 'purchase',
+          amount: parseInt(tokenAmount, 10),
+          userId: parseInt(userId, 10),
           status: 'completed',
-          paymentId: session.payment_intent as string,
+          fromAddress: 'SYSTEM',
+          toAddress: updatedUser.username,
+          blockHash: blockchainTx?.hash,
           timestamp: new Date()
         })
         .returning();
@@ -294,7 +295,7 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
 
       return {
         status: 'success',
-        newBalance: updatedUser.newBalance,
+        newBalance: updatedUser.tokenBalance,
         transaction,
         blockchainTx
       };
