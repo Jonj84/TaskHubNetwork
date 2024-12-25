@@ -46,17 +46,25 @@ export default function PaymentResult() {
             queryClient.invalidateQueries({ queryKey: ['/api/tokens/history'] })
           ]);
 
-          toast({
-            title: 'Payment Successful',
-            description: `Successfully purchased ${data.tokenAmount} tokens! Your new balance is ${data.newBalance} tokens.`,
-          });
-
-          // Close any open Stripe popup windows
+          // If this window is a popup, notify parent and close
           if (window.opener) {
-            window.opener.postMessage({ type: 'PAYMENT_COMPLETE', success: true }, '*');
-            window.close();
+            try {
+              window.opener.postMessage({ 
+                type: 'PAYMENT_COMPLETE', 
+                success: true,
+                data
+              }, '*');
+              window.close();
+            } catch (error) {
+              console.error('Failed to communicate with parent window:', error);
+            }
           } else {
-            // If not in popup, redirect back to marketplace after a short delay
+            // If not a popup, show toast and redirect
+            toast({
+              title: 'Payment Successful',
+              description: `Successfully purchased ${data.tokenAmount} tokens! Your new balance is ${data.newBalance} tokens.`,
+            });
+
             setTimeout(() => {
               setLocation('/marketplace');
             }, 2000);

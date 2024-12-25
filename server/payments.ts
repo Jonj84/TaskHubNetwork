@@ -134,7 +134,7 @@ export async function createStripeSession(req: Request, res: Response) {
 
     // Get the correct domain based on environment
     const isReplit = Boolean(req.headers['x-replit-user-id']);
-    const host = isReplit ? req.get('host') : 'localhost:5000';
+    const host = req.get('host');
     const protocol = isReplit ? 'https' : 'http';
     const baseUrl = `${protocol}://${host}`;
 
@@ -169,8 +169,8 @@ export async function createStripeSession(req: Request, res: Response) {
     console.log('Stripe session created:', {
       sessionId: session.id,
       url: session.url,
-      successUrl: `${baseUrl}/payment/success`,
-      cancelUrl: `${baseUrl}/payment/cancel`
+      successUrl: session.success_url,
+      cancelUrl: session.cancel_url
     });
 
     // Return the checkout URL and session ID
