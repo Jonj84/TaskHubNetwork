@@ -66,6 +66,39 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add WebSocket rate limiting
+  const wsConnections = new Map<string, number>();
+  const WS_RATE_LIMIT = 5; // connections per minute
+  const WS_RATE_WINDOW = 60000; // 1 minute in milliseconds
+
+  // Set up WebSocket server with rate limiting
+  const wsServer = setupWebSocket(httpServer, {
+    beforeUpgrade: (request: Request) => {
+      const clientIp = request.ip || request.socket.remoteAddress || 'unknown';
+      const now = Date.now();
+
+      // Clean up old entries
+      wsConnections.forEach((timestamp, ip) => {
+        if (now - timestamp > WS_RATE_WINDOW) {
+          wsConnections.delete(ip);
+        }
+      });
+
+      // Check rate limit
+      const connectionCount = Array.from(wsConnections.values()).filter(
+        timestamp => now - timestamp < WS_RATE_WINDOW
+      ).length;
+
+      if (connectionCount >= WS_RATE_LIMIT) {
+        return false;
+      }
+
+      // Record this connection attempt
+      wsConnections.set(clientIp, now);
+      return true;
+    }
+  });
+
   // Final error handler - needs to be after all routes
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     console.error('[API] Unhandled Error:', {
@@ -78,9 +111,6 @@ export function registerRoutes(app: Express): Server {
     const message = err.message || "Internal Server Error";
     res.status(status).json({ message });
   });
-
-  // Set up WebSocket server last
-  setupWebSocket(httpServer);
 
   return httpServer;
 }

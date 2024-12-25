@@ -19,6 +19,7 @@ class WebSocketService {
   private options: WebSocketOptions;
   private isManualDisconnect = false;
   private pingInterval: NodeJS.Timeout | null = null;
+  private connectionLock = false;
 
   constructor(options: WebSocketOptions) {
     this.options = {
@@ -29,7 +30,13 @@ class WebSocketService {
     };
   }
 
-  connect() {
+  async connect() {
+    // Prevent multiple simultaneous connection attempts
+    if (this.connectionLock) {
+      console.log('[WebSocket] Connection attempt already in progress');
+      return;
+    }
+
     if (this.ws?.readyState === WebSocket.OPEN) {
       console.log('[WebSocket] Already connected');
       return;
@@ -40,25 +47,38 @@ class WebSocketService {
       return;
     }
 
-    this.updateStatus('connecting');
-    this.clearTimeouts();
-
     try {
+      this.connectionLock = true;
+      this.updateStatus('connecting');
+      this.clearTimeouts();
+
       // Determine protocol based on current page protocol
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}${this.options.url}`;
 
       console.log('[WebSocket] Attempting connection to:', wsUrl);
-      this.ws = new WebSocket(wsUrl);
 
-      this.ws.onopen = () => {
+      // Create new WebSocket instance
+      const ws = new WebSocket(wsUrl);
+      this.ws = ws;
+
+      // Set up connection timeout
+      const connectionTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          console.log('[WebSocket] Connection timeout');
+          ws.close();
+        }
+      }, 10000);
+
+      ws.onopen = () => {
+        clearTimeout(connectionTimeout);
         console.log('[WebSocket] Connected successfully');
         this.setupPingInterval();
         this.reconnectAttempt = 0;
         this.updateStatus('connected');
       };
 
-      this.ws.onmessage = (event) => {
+      ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'pong') {
@@ -71,7 +91,8 @@ class WebSocketService {
         }
       };
 
-      this.ws.onclose = (event) => {
+      ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
         console.log('[WebSocket] Connection closed:', {
           code: event.code,
           reason: event.reason,
@@ -89,7 +110,7 @@ class WebSocketService {
         }
       };
 
-      this.ws.onerror = (error) => {
+      ws.onerror = (error) => {
         console.error('[WebSocket] Connection error:', {
           error,
           attempt: this.reconnectAttempt,
@@ -115,6 +136,8 @@ class WebSocketService {
       });
       this.updateStatus('error');
       this.attemptReconnect();
+    } finally {
+      this.connectionLock = false;
     }
   }
 
@@ -209,12 +232,12 @@ class WebSocketService {
   }
 
   // Manual reconnect for one-click recovery
-  manualReconnect() {
+  async manualReconnect() {
     console.log('[WebSocket] Manual reconnection requested');
     this.isManualDisconnect = false;
     this.reconnectAttempt = 0;
     this.disconnect();
-    this.connect();
+    await this.connect();
   }
 }
 

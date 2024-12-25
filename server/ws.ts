@@ -1,6 +1,7 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { type Server } from "http";
 import { log } from "./vite";
+import type { Request } from "express";
 
 interface ClientMetadata {
   lastPing: number;
@@ -8,11 +9,18 @@ interface ClientMetadata {
   isAlive: boolean;
 }
 
+interface WebSocketOptions {
+  beforeUpgrade?: (request: Request) => boolean;
+}
+
 // Store active connections with metadata
 const clients = new Map<WebSocket, ClientMetadata>();
 
 // Track upgrade requests to prevent duplicates
 const pendingUpgrades = new Set<string>();
+
+// Connection queue to prevent race conditions
+const connectionQueue = new Map<string, Promise<void>>();
 
 function heartbeat(this: WebSocket) {
   const metadata = clients.get(this);
@@ -58,12 +66,12 @@ export function broadcast(type: string, data: any, filter?: (client: WebSocket) 
   log(`[WebSocket] Broadcast complete: ${successCount} successful, ${failCount} failed`);
 }
 
-export function setupWebSocket(server: Server): WebSocketServer {
+export function setupWebSocket(server: Server, options: WebSocketOptions = {}): WebSocketServer {
   // Create WebSocket server
   const wss = new WebSocketServer({ noServer: true });
 
   // Handle upgrades
-  server.on('upgrade', (request, socket, head) => {
+  server.on('upgrade', async (request, socket, head) => {
     if (!request.url) {
       log('[WebSocket] Missing URL in upgrade request');
       socket.destroy();
@@ -92,13 +100,36 @@ export function setupWebSocket(server: Server): WebSocketServer {
         return;
       }
 
-      log(`[WebSocket] Handling upgrade for: ${request.url}`);
-      pendingUpgrades.add(requestId);
+      // Check rate limit if beforeUpgrade is provided
+      if (options.beforeUpgrade && !options.beforeUpgrade(request as Request)) {
+        log('[WebSocket] Rate limit exceeded, rejecting connection');
+        socket.destroy();
+        return;
+      }
 
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        pendingUpgrades.delete(requestId);
-        wss.emit('connection', ws, request);
+      // Queue the connection request
+      const queueKey = `${request.socket.remoteAddress}-${request.url}`;
+      if (connectionQueue.has(queueKey)) {
+        log('[WebSocket] Connection already in progress, queuing');
+        await connectionQueue.get(queueKey);
+        return;
+      }
+
+      const connectionPromise = new Promise<void>((resolve) => {
+        log(`[WebSocket] Handling upgrade for: ${request.url}`);
+        pendingUpgrades.add(requestId);
+
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          pendingUpgrades.delete(requestId);
+          connectionQueue.delete(queueKey);
+          wss.emit('connection', ws, request);
+          resolve();
+        });
       });
+
+      connectionQueue.set(queueKey, connectionPromise);
+      await connectionPromise;
+
     } catch (error) {
       log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
       if (!socket.destroyed) {
