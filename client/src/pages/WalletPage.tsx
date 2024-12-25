@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Award, ArrowRightLeft, Database } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, History } from "lucide-react";
 import { format } from 'date-fns';
 import { Transaction } from '../lib/blockchain/types';
 import { motion } from 'framer-motion';
@@ -100,6 +100,7 @@ export default function WalletPage() {
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="grid gap-4 md:grid-cols-2">
+        {/* Balance Card */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -113,6 +114,7 @@ export default function WalletPage() {
           </CardContent>
         </Card>
 
+        {/* Send Tokens Card */}
         <Card>
           <CardHeader>
             <CardTitle>Send Tokens</CardTitle>
@@ -163,10 +165,11 @@ export default function WalletPage() {
         </Card>
       </div>
 
+      {/* Transaction History */}
       <Card className="mt-8">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Database className="h-5 w-5" />
+            <History className="h-5 w-5" />
             Transaction History
           </CardTitle>
         </CardHeader>
@@ -180,36 +183,55 @@ export default function WalletPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Block Hash</TableHead>
-                  <TableHead>Token IDs</TableHead>
-                  <TableHead>Amount</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>From/To</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[...purchases, ...mining].map((tx, index) => (
+                {[...purchases, ...mining]
+                  .sort((a, b) => b.timestamp - a.timestamp)
+                  .map((tx, index) => (
                   <motion.tr
                     key={tx.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.1 }}
-                    className="border-b border-border hover:bg-muted/50"
+                    className="group border-b border-border hover:bg-muted/50"
                   >
                     <TableCell>
                       {format(new Date(tx.timestamp), 'MMM d, yyyy HH:mm')}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {tx.blockHash?.substring(0, 10)}...
+                    <TableCell>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
+                        ${tx.type === 'mint' ? 'bg-blue-100 text-blue-800' :
+                        tx.type === 'escrow' ? 'bg-yellow-100 text-yellow-800' :
+                        tx.type === 'release' ? 'bg-green-100 text-green-800' :
+                        'bg-gray-100 text-gray-800'}`}>
+                        {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
+                      </span>
                     </TableCell>
                     <TableCell className="font-mono text-xs">
-                      {tx.tokenIds?.map(id => id.substring(0, 6)).join(', ')}
+                      {tx.to === user?.username ? 
+                        <span className="text-green-600">From: {tx.from}</span> :
+                        <span className="text-red-600">To: {tx.to}</span>
+                      }
                     </TableCell>
-                    <TableCell className={tx.to === user?.username ? 'text-green-600' : 'text-red-600'}>
+                    <TableCell className={`text-right font-medium ${
+                      tx.to === user?.username ? 'text-green-600' : 'text-red-600'
+                    }`}>
                       {tx.to === user?.username ? '+' : '-'}
                       {tx.amount}
-                      {tx.type === 'mint' && tx.from === 'SYSTEM' && tx.amount === 1 ? ' (Mining Reward)' : ' Tokens'}
                     </TableCell>
                   </motion.tr>
                 ))}
+                {transactions.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                      No transactions found
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           )}
