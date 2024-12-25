@@ -7,7 +7,7 @@ import { db } from "@db";
 import { tokenTransactions, users, tokens } from "@db/schema";
 import { eq, and } from "drizzle-orm";
 import { blockchainService } from './blockchain';
-
+import { balanceTracker } from './services/balanceTracker'; 
 // Pricing tiers configuration
 const PRICING_TIERS = {
   standard: {
@@ -167,6 +167,28 @@ export function registerRoutes(app: Express): Server {
       });
     }
   });
+
+  // Add this new route after the blockchain routes
+  app.post('/api/blockchain/sync-balance', async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const updatedUser = await balanceTracker.forceSyncBalance(req.user.username);
+      res.json({
+        message: 'Balance synchronized successfully',
+        user: updatedUser
+      });
+    } catch (error: any) {
+      const errorLog = logError(error, req);
+      res.status(500).json({
+        message: 'Failed to sync balance',
+        error: errorLog
+      });
+    }
+  });
+
 
   // Token transaction history endpoint
   app.get("/api/tokens/history", async (req: AuthRequest, res: Response) => {
