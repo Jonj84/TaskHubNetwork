@@ -3,8 +3,6 @@ import { type Server } from "http";
 import { log } from "./vite";
 import type { Request } from "express";
 import { balanceTracker } from './services/balanceTracker';
-import { parse } from 'cookie';
-import type { Session } from 'express-session';
 
 // WebSocket connection states
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -15,13 +13,6 @@ interface ClientConnection {
   lastPing: number;
   isAlive: boolean;
   connectionAttempts: number;
-  sessionId?: string;
-}
-
-declare module 'express-session' {
-  interface SessionData {
-    userId?: string;
-  }
 }
 
 class WebSocketManager {
@@ -34,8 +25,8 @@ class WebSocketManager {
   constructor(server: Server) {
     this.wss = new WebSocketServer({ noServer: true });
     this.setupServer(server);
-    this.setupPingInterval();
-
+    // Initialize ping interval directly
+    this.pingInterval = setInterval(() => this.checkConnections(), WebSocketManager.PING_INTERVAL);
     log('[WebSocket] Manager initialized');
   }
 
@@ -44,34 +35,17 @@ class WebSocketManager {
       try {
         // Skip Vite HMR connections
         if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
-          log('[WebSocket] Skipping Vite HMR connection');
           return;
         }
 
         // Only handle API websocket connections
-        if (!request.url?.match(/^\/(api\/)?ws/)) {
-          socket.destroy();
-          return;
-        }
-
-        // Get session from cookie
-        const cookieHeader = request.headers.cookie;
-        if (!cookieHeader) {
-          log('[WebSocket] No cookie found');
-          socket.destroy();
-          return;
-        }
-
-        const cookies = parse(cookieHeader);
-        const sessionId = cookies['connect.sid'];
-        if (!sessionId) {
-          log('[WebSocket] No session ID found');
+        if (!request.url?.startsWith('/api/ws')) {
           socket.destroy();
           return;
         }
 
         this.wss.handleUpgrade(request, socket, head, (ws) => {
-          this.wss.emit('connection', ws, request, sessionId);
+          this.wss.emit('connection', ws, request);
         });
       } catch (error) {
         log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
@@ -79,11 +53,11 @@ class WebSocketManager {
       }
     });
 
-    this.wss.on('connection', (ws: WebSocket, request: Request, sessionId: string) => 
-      this.handleConnection(ws, request, sessionId));
+    this.wss.on('connection', (ws: WebSocket, request: Request) => 
+      this.handleConnection(ws, request));
   }
 
-  private async handleConnection(ws: WebSocket, request: Request, sessionId: string) {
+  private async handleConnection(ws: WebSocket, request: Request) {
     const connectionId = Math.random().toString(36).substring(2);
     const userId = (request as any).session?.userId;
 
@@ -92,7 +66,6 @@ class WebSocketManager {
     this.connections.set(connectionId, {
       ws,
       userId,
-      sessionId,
       lastPing: Date.now(),
       isAlive: true,
       connectionAttempts: 0
@@ -101,17 +74,15 @@ class WebSocketManager {
     ws.on('pong', () => this.handlePong(connectionId));
     ws.on('message', (data) => this.handleMessage(connectionId, data));
     ws.on('close', () => this.handleClose(connectionId));
-    ws.on('error', (error) => this.handleError(connectionId, error));
-
-    // Send initial connection success message
-    this.sendMessage(ws, {
-      type: 'connected',
-      data: { message: 'Connected successfully' }
+    ws.on('error', (error) => {
+      log(`[WebSocket] Error for connection ${connectionId}: ${error.message}`);
     });
 
     // If authenticated, send initial balance
     if (userId) {
-      await this.sendInitialBalance(ws, userId);
+      this.sendInitialBalance(ws, userId).catch(error => {
+        log(`[WebSocket] Failed to send initial balance: ${error.message}`);
+      });
     }
   }
 
@@ -123,17 +94,17 @@ class WebSocketManager {
         data: { balance }
       });
     } catch (error) {
-      log(`[WebSocket] Failed to send initial balance: ${error instanceof Error ? error.message : String(error)}`);
+      log(`[WebSocket] Balance fetch error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   private sendMessage(ws: WebSocket, message: any) {
-    try {
-      if (ws.readyState === WebSocket.OPEN) {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
         ws.send(JSON.stringify(message));
+      } catch (error) {
+        log(`[WebSocket] Send message error: ${error instanceof Error ? error.message : String(error)}`);
       }
-    } catch (error) {
-      log(`[WebSocket] Send message error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -145,7 +116,7 @@ class WebSocketManager {
     }
   }
 
-  private async handleMessage(connectionId: string, data: any) {
+  private handleMessage(connectionId: string, data: any) {
     try {
       const connection = this.connections.get(connectionId);
       if (!connection) return;
@@ -156,16 +127,13 @@ class WebSocketManager {
       switch (message.type) {
         case 'subscribe_balance':
           if (connection.userId) {
-            await this.sendInitialBalance(connection.ws, connection.userId);
+            this.sendInitialBalance(connection.ws, connection.userId);
           }
           break;
 
         case 'ping':
           this.sendMessage(connection.ws, { type: 'pong' });
           break;
-
-        default:
-          log(`[WebSocket] Unknown message type: ${message.type}`);
       }
     } catch (error) {
       log(`[WebSocket] Message handling error: ${error instanceof Error ? error.message : String(error)}`);
@@ -180,53 +148,34 @@ class WebSocketManager {
     }
   }
 
-  private handleError(connectionId: string, error: Error) {
-    const connection = this.connections.get(connectionId);
-    if (connection) {
-      log(`[WebSocket] Connection error for ${connectionId}: ${error.message}`);
-      connection.connectionAttempts++;
-
-      if (connection.connectionAttempts >= WebSocketManager.MAX_RECONNECT_ATTEMPTS) {
-        log(`[WebSocket] Max reconnection attempts reached for ${connectionId}`);
-        this.connections.delete(connectionId);
+  private checkConnections() {
+    this.connections.forEach((connection, id) => {
+      if (!connection.isAlive) {
+        log(`[WebSocket] Connection ${id} not responding to ping`);
+        this.handleClose(id);
+        return;
       }
-    }
-  }
 
-  private setupPingInterval() {
-    this.pingInterval = setInterval(() => {
-      this.connections.forEach((connection, id) => {
-        if (!connection.isAlive) {
-          log(`[WebSocket] Connection ${id} not responding to ping`);
-          this.handleClose(id);
-          return;
-        }
-
-        connection.isAlive = false;
-        try {
-          connection.ws.ping();
-        } catch (error) {
-          this.handleError(id, error as Error);
-        }
-      });
-    }, WebSocketManager.PING_INTERVAL);
+      connection.isAlive = false;
+      try {
+        connection.ws.ping();
+      } catch (error) {
+        log(`[WebSocket] Ping failed for ${id}: ${error instanceof Error ? error.message : String(error)}`);
+        this.handleClose(id);
+      }
+    });
   }
 
   public broadcastToUser(userId: string, type: string, data: any) {
-    let sent = false;
     this.connections.forEach(connection => {
       if (connection.userId === userId && connection.ws.readyState === WebSocket.OPEN) {
         try {
           this.sendMessage(connection.ws, { type, data });
-          sent = true;
         } catch (error) {
           log(`[WebSocket] Broadcast error: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
     });
-    if (!sent) {
-      log(`[WebSocket] No active connections found for user ${userId}`);
-    }
   }
 
   public cleanup() {
@@ -244,7 +193,7 @@ class WebSocketManager {
 
 let wsManager: WebSocketManager | null = null;
 
-export function setupWebSocket(server: Server): WebSocketServer {
+export function setupWebSocket(server: Server) {
   if (!wsManager) {
     wsManager = new WebSocketManager(server);
   }
