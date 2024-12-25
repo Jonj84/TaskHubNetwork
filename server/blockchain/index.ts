@@ -3,7 +3,7 @@ import type { Transaction, Token, TransactionResult, TokenMetadata } from '../..
 import { createHash } from 'crypto';
 import { db } from "@db";
 import { tokens, users } from "@db/schema";
-import { sql, eq } from 'drizzle-orm';
+import { sql, eq, count } from 'drizzle-orm';
 
 class Block {
   public hash: string;
@@ -48,7 +48,7 @@ class Block {
       console.log('Creating mining reward for:', minerAddress);
 
       // Find the purchase transaction to calculate mining reward
-      const purchaseTransaction = this.transactions.find(tx => 
+      const purchaseTransaction = this.transactions.find(tx =>
         tx.type === 'mint' && tx.metadata?.price && !tx.metadata?.reason
       );
 
@@ -165,10 +165,12 @@ class Blockchain {
   async getBalance(address: string): Promise<number> {
     console.log('Calculating balance for address:', address);
     try {
-      const result = await db.execute(
-        sql`SELECT COUNT(*) as count FROM tokens WHERE owner = ${address}`
-      );
-      const tokenCount = Number(result[0].count);
+      const result = await db
+        .select({ count: count() })
+        .from(tokens)
+        .where(eq(tokens.owner, address));
+
+      const tokenCount = result[0].count;
       console.log('Calculated balance:', { address, balance: tokenCount });
       return tokenCount;
     } catch (error) {
@@ -183,13 +185,15 @@ class Blockchain {
 
   async updateUserBalance(username: string): Promise<number> {
     try {
-      // Get token count from database
-      const result = await db.execute(
-        sql`SELECT COUNT(*) as count FROM tokens WHERE owner = ${username}`
-      );
-      const tokenCount = Number(result[0].count);
+      // Get token count using Drizzle ORM
+      const result = await db
+        .select({ count: count() })
+        .from(tokens)
+        .where(eq(tokens.owner, username));
 
-      // Update user's token balance in the database
+      const tokenCount = result[0].count;
+
+      // Update user's token balance
       await db
         .update(users)
         .set({
