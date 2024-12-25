@@ -59,21 +59,8 @@ export async function createStripeSession(req: Request, res: Response) {
       userId: (req as any).user?.id
     });
 
-    // First create a PaymentIntent
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: priceInCents,
-      currency: 'usd',
-      payment_method_types: ['card'],
-      metadata: {
-        tokenAmount: amount.toString(),
-        userId: (req as any).user?.id?.toString(),
-        tier
-      }
-    });
-
-    // Then create a checkout session linked to the PaymentIntent
+    // Create a checkout session configured for iframe display
     const session = await stripe.checkout.sessions.create({
-      payment_intent: paymentIntent.id,
       payment_method_types: ["card"],
       line_items: [
         {
@@ -89,8 +76,8 @@ export async function createStripeSession(req: Request, res: Response) {
         },
       ],
       mode: "payment",
-      ui_mode: 'embedded',
-      return_url: `${req.protocol}://${req.get('host')}/payment/success`,
+      success_url: `${req.protocol}://${req.get('host')}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${req.protocol}://${req.get('host')}/payment/cancel`,
       metadata: {
         tokenAmount: amount.toString(),
         userId: (req as any).user?.id?.toString(),
@@ -100,12 +87,12 @@ export async function createStripeSession(req: Request, res: Response) {
 
     console.log('Stripe session created:', {
       sessionId: session.id,
-      clientSecret: paymentIntent.client_secret
+      url: session.url
     });
 
-    // Return the PaymentIntent client secret
+    // Return the checkout URL and session ID
     res.json({ 
-      clientSecret: paymentIntent.client_secret,
+      checkoutUrl: session.url,
       sessionId: session.id 
     });
   } catch (error: any) {

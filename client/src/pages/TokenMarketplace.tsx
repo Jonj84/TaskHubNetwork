@@ -28,7 +28,7 @@ export default function TokenMarketplace() {
   const [tokenAmount, setTokenAmount] = useState<number>(100);
   const [isProcessing, setIsProcessing] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [clientSecret, setClientSecret] = useState<string>();
+  const [checkoutUrl, setCheckoutUrl] = useState<string>();
   const [pricing, setPricing] = useState<PriceInfo>({
     basePrice: 0,
     discount: 0,
@@ -102,13 +102,13 @@ export default function TokenMarketplace() {
         throw new Error(errorText);
       }
 
-      const { clientSecret } = await response.json();
+      const { checkoutUrl } = await response.json();
 
-      if (!clientSecret) {
-        throw new Error('No client secret received from server');
+      if (!checkoutUrl) {
+        throw new Error('No checkout URL received from server');
       }
 
-      setClientSecret(clientSecret);
+      setCheckoutUrl(checkoutUrl);
       setCheckoutOpen(true);
 
     } catch (error: any) {
@@ -257,8 +257,7 @@ export default function TokenMarketplace() {
       <StripeCheckoutDialog
         open={checkoutOpen}
         onOpenChange={setCheckoutOpen}
-        clientSecret={clientSecret}
-        amount={pricing.finalPrice * 100} //converting to cents
+        checkoutUrl={checkoutUrl}
       />
     </div>
   );
