@@ -1,9 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Transaction, TransactionResult } from '../../client/src/lib/blockchain/types';
+import type { Transaction, Token, TransactionResult } from '../../client/src/lib/blockchain/types';
 import { db } from "@db";
-import { users, tokenTransactions } from "@db/schema";
-import { sql, eq } from 'drizzle-orm';
-import { balanceTracker } from '../services/balanceTracker';
+import { tokens, users, tokenTransactions } from "@db/schema";
+import { sql, eq, count } from 'drizzle-orm';
 
 class Blockchain {
   private chain: Transaction[];
@@ -26,7 +25,13 @@ class Blockchain {
   async getBalance(address: string): Promise<number> {
     console.log('[Balance Check] Starting balance calculation for:', address);
     try {
-      const balance = await balanceTracker.getBalance(address);
+      // Count tokens owned by the address
+      const result = await db
+        .select({ count: count() })
+        .from(tokens)
+        .where(eq(tokens.owner, address));
+
+      const balance = Number(result[0].count);
       console.log('[Balance Check] Result:', { 
         address, 
         calculatedBalance: balance,
@@ -62,7 +67,7 @@ class Blockchain {
 
     // Check balance (except for system transactions)
     if (from !== 'SYSTEM') {
-      const balance = await balanceTracker.getBalance(from);
+      const balance = await this.getBalance(from);
       console.log('[Balance Check] Pre-transaction:', { 
         address: from, 
         currentBalance: balance, 
@@ -74,8 +79,53 @@ class Blockchain {
     }
 
     try {
-      // Record transaction in a single database operation
+      // Create tokens and record transaction in a single database transaction
       const result = await db.transaction(async (tx) => {
+        // Generate token IDs
+        const baseTokenIds = Array.from({ length: amount }, () => uuidv4());
+        let bonusTokenIds: string[] = [];
+
+        if (metadata?.bonusTokens && metadata.bonusTokens > 0) {
+          bonusTokenIds = Array.from({ length: metadata.bonusTokens }, () => uuidv4());
+        }
+
+        // Create base tokens
+        const baseTokensToCreate = baseTokenIds.map(tokenId => ({
+          id: tokenId,
+          creator: from,
+          owner: to,
+          mintedInBlock: 'immediate',
+          metadata: {
+            createdAt: new Date(),
+            previousTransfers: [],
+            purchaseInfo: metadata ? {
+              paymentId: metadata.paymentId,
+              price: metadata.price,
+              purchaseDate: new Date()
+            } : undefined
+          }
+        }));
+
+        // Create bonus tokens if applicable
+        const bonusTokensToCreate = bonusTokenIds.map(tokenId => ({
+          id: tokenId,
+          creator: 'SYSTEM',
+          owner: to,
+          mintedInBlock: 'immediate',
+          metadata: {
+            createdAt: new Date(),
+            previousTransfers: [],
+            purchaseInfo: {
+              reason: 'volume_bonus',
+              originalPurchaseId: metadata?.paymentId,
+              purchaseDate: new Date()
+            }
+          }
+        }));
+
+        // Insert tokens
+        await tx.insert(tokens).values([...baseTokensToCreate, ...bonusTokensToCreate]);
+
         // Get user IDs for transaction recording
         const [toUser] = await tx
           .select()
@@ -90,10 +140,10 @@ class Blockchain {
         // Record the transaction
         const [transaction] = await tx.insert(tokenTransactions).values({
           userId: toUser.id,
-          amount: amount + (metadata?.bonusTokens || 0),
           type: from === 'SYSTEM' ? 'mint' : 'transfer',
           fromAddress: from,
           toAddress: to,
+          tokenIds: [...baseTokenIds, ...bonusTokenIds],
           metadata: {
             ...metadata,
             baseTokens: amount,
@@ -102,23 +152,15 @@ class Blockchain {
           timestamp: new Date()
         }).returning();
 
-        // Update balances
-        const totalTokens = amount + (metadata?.bonusTokens || 0);
-        await balanceTracker.addTokens(to, totalTokens);
-
-        if (from !== 'SYSTEM') {
-          await balanceTracker.addTokens(from, -amount);
-        }
-
         // Create transaction record for the chain
         const chainTransaction: Transaction = {
           id: transaction.id.toString(),
           from,
           to,
-          amount: totalTokens,
+          amount: amount + (metadata?.bonusTokens || 0),
           timestamp: transaction.timestamp.getTime(),
           type: from === 'SYSTEM' ? 'mint' : 'transfer',
-          tokenIds: [], // Empty array since we don't track individual tokens anymore
+          tokenIds: [...baseTokenIds, ...bonusTokenIds],
           metadata: transaction.metadata
         };
 
@@ -126,12 +168,12 @@ class Blockchain {
 
         return {
           id: transaction.id.toString(),
-          tokenIds: [], // Empty array since we don't track individual tokens anymore
+          tokenIds: [...baseTokenIds, ...bonusTokenIds],
           blockHash: 'immediate'
         };
       });
 
-      console.log('[Transaction Complete] Successfully recorded transaction');
+      console.log('[Transaction Complete] Successfully created tokens and recorded transaction');
       return result;
 
     } catch (error) {
@@ -155,5 +197,5 @@ export const blockchainService = {
   createTransaction: blockchain.createTransaction.bind(blockchain),
   getAllTransactions: () => blockchain.getAllTransactions(),
   getPendingTransactions: () => blockchain.getPendingTransactions(),
-  getBalance: (address: string) => balanceTracker.getBalance(address)
+  getBalance: (address: string) => blockchain.getBalance(address)
 };
