@@ -115,6 +115,19 @@ export class BalanceTracker {
     try {
       console.log('[BalanceTracker] Force syncing balance for:', username);
 
+      // Get user record first
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.username, username))
+        .limit(1)
+        .then(rows => rows[0]);
+
+      if (!user) {
+        console.error('[BalanceTracker] User not found:', username);
+        throw new Error(`User not found: ${username}`);
+      }
+
       // Invalidate cache
       balanceCache.delete(username);
 
@@ -125,15 +138,20 @@ export class BalanceTracker {
       const [updatedUser] = await db
         .update(users)
         .set({
-          tokenBalance: actualBalance,
+          token_balance: actualBalance,
           updated_at: new Date()
         })
-        .where(eq(users.username, username))
+        .where(eq(users.id, user.id))
         .returning();
+
+      if (!updatedUser) {
+        throw new Error(`Failed to update balance for user: ${username}`);
+      }
 
       console.log('[BalanceTracker] Force sync completed:', {
         username,
-        previousBalance: updatedUser.tokenBalance,
+        userId: user.id,
+        previousBalance: user.token_balance,
         newBalance: actualBalance,
         timestamp: new Date().toISOString()
       });
