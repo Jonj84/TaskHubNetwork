@@ -82,17 +82,18 @@ class Blockchain {
           tokenIds
         });
 
-        // Update token ownership from ESCROW to worker
+        // Update token ownership and status from ESCROW to worker
         await tx
           .update(tokens)
           .set({
             owner: toAddress,
+            status: 'active',
             updated_at: new Date()
           })
           .where(
             and(
               inArray(tokens.id, tokenIds),
-              eq(tokens.status, 'active'),
+              eq(tokens.status, 'escrow'),
               eq(tokens.owner, 'ESCROW')
             )
           );
@@ -102,7 +103,7 @@ class Blockchain {
           .insert(tokenTransactions)
           .values({
             userId: parseInt(toAddress), // Worker's user ID
-            type: 'transfer',
+            type: 'release',
             status: 'completed',
             fromAddress: 'ESCROW',
             toAddress: toAddress,
@@ -122,8 +123,12 @@ class Blockchain {
           to: toAddress,
           amount: tokenIds.length,
           timestamp: Date.now(),
-          type: 'transfer',
-          tokenIds
+          type: 'release',
+          tokenIds,
+          metadata: {
+            escrowTransactionId,
+            releaseTimestamp: new Date().toISOString()
+          }
         };
 
         this.chain.push(chainTransaction);
