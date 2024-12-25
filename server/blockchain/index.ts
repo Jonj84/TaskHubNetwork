@@ -61,7 +61,8 @@ class Blockchain {
     try {
       return await db.transaction(async (tx) => {
         // For system transactions (minting), throw error as it's not allowed here
-        if (from === 'SYSTEM') {
+        // Allow transactions from SYSTEM and to ESCROW
+        if (from === 'SYSTEM' && to !== 'ESCROW') {
           throw new Error('System transactions not allowed here');
         }
 

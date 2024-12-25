@@ -61,18 +61,31 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Create task
-      const [task] = await db.insert(tasks).values({
-        title,
-        description,
-        type,
-        reward,
-        status: 'open',
-        creatorId: req.user.id,
-        proofRequired,
-        created_at: new Date(),
-        updated_at: new Date()
-      }).returning();
+      // Handle task creation and token escrow in a transaction
+      const [task] = await db.transaction(async (tx) => {
+        // Create escrow transaction first
+        const escrowResult = await blockchainService.createTransaction(
+          req.user.username,
+          'ESCROW',
+          reward
+        );
+
+        // Create task with escrow reference
+        const [newTask] = await tx.insert(tasks).values({
+          title,
+          description,
+          type,
+          reward,
+          status: 'open',
+          creatorId: req.user.id,
+          proofRequired,
+          escrowTransactionId: escrowResult.id,
+          created_at: new Date(),
+          updated_at: new Date()
+        }).returning();
+
+        return newTask;
+      });
 
       // Send JSON response
       res.status(201).json(task);
