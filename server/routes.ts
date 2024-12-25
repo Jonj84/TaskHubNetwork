@@ -8,6 +8,7 @@ import { tokenTransactions, users } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { blockchainService } from './blockchain';
 import { balanceTracker } from './services/balanceTracker';
+import { setupWebSocket } from './ws';
 
 // Auth request type
 interface AuthRequest extends Request {
@@ -30,6 +31,12 @@ export function registerRoutes(app: Express): Server {
     express.raw({ type: "application/json" }),
     handleStripeWebhook
   );
+
+  // Create HTTP server first
+  const httpServer = createServer(app);
+
+  // Setup WebSocket server
+  const wss = setupWebSocket(httpServer);
 
   // Standard middleware
   app.use(express.json());
@@ -131,10 +138,14 @@ export function registerRoutes(app: Express): Server {
         orderBy: (tokenTransactions, { desc }) => [desc(tokenTransactions.timestamp)],
       });
 
-      const totalSpent = transactions.reduce((sum, tx) =>
-        tx.type === 'purchase' ? sum + tx.amount : sum, 0);
+      const totalTransactions = transactions.length;
+      const purchaseTransactions = transactions.filter(tx => 
+        tx.metadata?.totalPrice !== undefined && tx.metadata?.totalPrice > 0
+      );
 
-      const purchaseTransactions = transactions.filter(tx => tx.type === 'purchase');
+      const totalSpent = purchaseTransactions.reduce((sum, tx) => 
+        sum + (tx.metadata?.totalPrice || 0), 0);
+
       const avgPurchaseSize = purchaseTransactions.length > 0
         ? Math.round(totalSpent / purchaseTransactions.length)
         : 0;
@@ -183,7 +194,5 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-
-  const httpServer = createServer(app);
   return httpServer;
 }

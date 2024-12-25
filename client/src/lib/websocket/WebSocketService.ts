@@ -18,6 +18,7 @@ class WebSocketService {
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private options: WebSocketOptions;
   private isManualDisconnect = false;
+  private pingInterval: NodeJS.Timeout | null = null;
 
   constructor(options: WebSocketOptions) {
     this.options = {
@@ -40,16 +41,19 @@ class WebSocketService {
     }
 
     this.updateStatus('connecting');
+    this.clearTimeouts();
 
     try {
       // Determine protocol based on current page protocol
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}${this.options.url}`;
 
+      console.log('[WebSocket] Attempting connection to:', wsUrl);
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
         console.log('[WebSocket] Connected successfully');
+        this.setupPingInterval();
         this.reconnectAttempt = 0;
         this.updateStatus('connected');
       };
@@ -57,6 +61,10 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type === 'pong') {
+            console.log('[WebSocket] Received pong');
+            return;
+          }
           this.options.onMessage?.(data);
         } catch (error) {
           console.error('[WebSocket] Failed to parse message:', error);
@@ -64,15 +72,29 @@ class WebSocketService {
       };
 
       this.ws.onclose = (event) => {
-        console.log('[WebSocket] Connection closed', event.code, event.reason);
+        console.log('[WebSocket] Connection closed:', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          timestamp: new Date().toISOString()
+        });
+
+        this.clearPingInterval();
         this.updateStatus('disconnected');
-        if (!this.isManualDisconnect) {
+
+        // Don't attempt to reconnect if this was a manual disconnect
+        // or if the connection was closed cleanly
+        if (!this.isManualDisconnect && !event.wasClean) {
           this.attemptReconnect();
         }
       };
 
       this.ws.onerror = (error) => {
-        console.error('[WebSocket] Connection error:', error);
+        console.error('[WebSocket] Connection error:', {
+          error,
+          attempt: this.reconnectAttempt,
+          timestamp: new Date().toISOString()
+        });
         this.updateStatus('error');
 
         // Only show error toast on first error occurrence
@@ -86,9 +108,34 @@ class WebSocketService {
       };
 
     } catch (error) {
-      console.error('[WebSocket] Failed to create connection:', error);
+      console.error('[WebSocket] Failed to create connection:', {
+        error,
+        attempt: this.reconnectAttempt,
+        timestamp: new Date().toISOString()
+      });
       this.updateStatus('error');
       this.attemptReconnect();
+    }
+  }
+
+  private setupPingInterval() {
+    this.clearPingInterval();
+    this.pingInterval = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.send(JSON.stringify({ type: 'ping' }));
+          console.log('[WebSocket] Ping sent');
+        } catch (error) {
+          console.error('[WebSocket] Failed to send ping:', error);
+        }
+      }
+    }, 30000); // Send ping every 30 seconds
+  }
+
+  private clearPingInterval() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
     }
   }
 
@@ -111,10 +158,15 @@ class WebSocketService {
     }
   }
 
-  private attemptReconnect() {
+  private clearTimeouts() {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
     }
+  }
+
+  private attemptReconnect() {
+    this.clearTimeouts();
 
     if (this.reconnectAttempt >= (this.options.reconnectAttempts || 5)) {
       console.log('[WebSocket] Max reconnection attempts reached');
@@ -141,14 +193,11 @@ class WebSocketService {
 
   disconnect() {
     this.isManualDisconnect = true;
-
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
+    this.clearTimeouts();
+    this.clearPingInterval();
 
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'Manual disconnect');
       this.ws = null;
     }
 

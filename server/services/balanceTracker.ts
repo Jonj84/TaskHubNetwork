@@ -19,11 +19,11 @@ export class BalanceTracker {
     // Clear cache periodically
     setInterval(() => {
       const now = Date.now();
-      for (const [key, value] of balanceCache.entries()) {
+      balanceCache.forEach((value, key) => {
         if (now - value.timestamp > CACHE_TTL) {
           balanceCache.delete(key);
         }
-      }
+      });
     }, CACHE_TTL);
   }
 
