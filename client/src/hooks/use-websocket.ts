@@ -15,6 +15,7 @@ interface WebSocketService {
   connect: () => void;
   disconnect: () => void;
   manualReconnect: () => void;
+  send: (message: any) => void;
 }
 
 let ws: WebSocket | null = null;
@@ -33,6 +34,17 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
     initialBackoff = 1000,
     maxBackoff = 30000
   } = config;
+
+  const cleanup = () => {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+  };
 
   const connect = () => {
     if (ws?.readyState === WebSocket.CONNECTING) {
@@ -122,24 +134,15 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
     }
   };
 
-  const cleanup = () => {
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
-      heartbeatInterval = null;
-    }
-    if (reconnectTimeout) {
-      clearTimeout(reconnectTimeout);
-      reconnectTimeout = null;
-    }
-  };
-
   const disconnect = () => {
     cleanup();
 
     if (ws) {
       try {
         ws.onclose = null; // Prevent reconnect on manual disconnect
-        ws.close(1000, 'User initiated disconnect');
+        if (!ws.destroyed) {
+          ws.close(1000, 'User initiated disconnect');
+        }
       } catch (error) {
         console.error('[WebSocket] Disconnect error:', error);
       }
@@ -155,10 +158,23 @@ function createWebSocketService(config: WebSocketConfig): WebSocketService {
     connect();
   };
 
+  const send = (message: any) => {
+    if (ws?.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(message));
+      } catch (error) {
+        console.error('[WebSocket] Send error:', error);
+      }
+    } else {
+      console.warn('[WebSocket] Cannot send message, connection not open');
+    }
+  };
+
   return {
     connect,
     disconnect,
-    manualReconnect
+    manualReconnect,
+    send
   };
 }
 
@@ -215,9 +231,14 @@ export function useWebSocket(url: string) {
     service.manualReconnect();
   }, [service]);
 
+  const send = useCallback((message: any) => {
+    service.send(message);
+  }, [service]);
+
   return {
     status,
     reconnect,
+    send,
     isConnected: status === 'connected'
   };
 }

@@ -13,6 +13,7 @@ interface ClientConnection {
   lastPing: number;
   isAlive: boolean;
   connectionAttempts: number;
+  sessionId: string;
 }
 
 let wsServer: WebSocketServer | null = null;
@@ -45,12 +46,14 @@ class WebSocketManager {
     server.on('upgrade', (request: Request, socket, head) => {
       try {
         // Skip Vite HMR connections
-        if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
+        if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
+          log('[WebSocket] Skipping Vite HMR connection');
           return;
         }
 
         // Only handle API websocket connections
         if (!request.url?.startsWith('/api/ws')) {
+          log('[WebSocket] Invalid WebSocket path:', request.url);
           socket.destroy();
           return;
         }
@@ -86,29 +89,33 @@ class WebSocketManager {
   }
 
   private async handleConnection(ws: WebSocket, request: Request) {
-    const connectionId = Math.random().toString(36).substring(2);
+    const sessionId = Math.random().toString(36).substring(2);
     const userId = (request as any).userId;
 
-    log(`[WebSocket] New connection: ${connectionId}${userId ? ` for user ${userId}` : ''}`);
+    log(`[WebSocket] New connection: ${sessionId}${userId ? ` for user ${userId}` : ''}`);
 
     const connection: ClientConnection = {
       ws,
       userId,
       lastPing: Date.now(),
       isAlive: true,
-      connectionAttempts: 0
+      connectionAttempts: 0,
+      sessionId
     };
 
-    this.connections.set(connectionId, connection);
+    this.connections.set(sessionId, connection);
 
-    ws.on('pong', () => this.handlePong(connectionId));
-    ws.on('message', (data) => this.handleMessage(connectionId, data));
+    ws.on('pong', () => this.handlePong(sessionId));
+    ws.on('message', (data) => this.handleMessage(sessionId, data));
     ws.on('close', (code, reason) => {
-      log(`[WebSocket] Connection closed: ${connectionId}, Code: ${code}, Reason: ${reason}`);
-      this.handleClose(connectionId);
+      log(`[WebSocket] Connection closed: ${sessionId}, Code: ${code}, Reason: ${reason}`);
+      this.handleClose(sessionId);
     });
     ws.on('error', (error) => {
-      log(`[WebSocket] Error for connection ${connectionId}: ${error.message}`);
+      log(`[WebSocket] Error for connection ${sessionId}: ${error.message}`);
+      if (!ws.destroyed) {
+        ws.close(1006, 'Connection error');
+      }
     });
 
     // Send initial balance for authenticated users
@@ -126,26 +133,26 @@ class WebSocketManager {
     }
   }
 
-  private handlePong(connectionId: string) {
-    const connection = this.connections.get(connectionId);
+  private handlePong(sessionId: string) {
+    const connection = this.connections.get(sessionId);
     if (connection) {
       connection.isAlive = true;
       connection.lastPing = Date.now();
     }
   }
 
-  private handleMessage(connectionId: string, data: any) {
+  private handleMessage(sessionId: string, data: any) {
     try {
-      const connection = this.connections.get(connectionId);
+      const connection = this.connections.get(sessionId);
       if (!connection) {
-        log(`[WebSocket] Message received for unknown connection: ${connectionId}`);
+        log(`[WebSocket] Message received for unknown connection: ${sessionId}`);
         return;
       }
 
       const message = JSON.parse(data.toString());
 
       if (message.type !== 'ping') {
-        log(`[WebSocket] Received message: ${message.type} from ${connectionId}`);
+        log(`[WebSocket] Received message: ${message.type} from ${sessionId}`);
       }
 
       switch (message.type) {
@@ -190,10 +197,10 @@ class WebSocketManager {
     }
   }
 
-  private handleClose(connectionId: string) {
-    const connection = this.connections.get(connectionId);
+  private handleClose(sessionId: string) {
+    const connection = this.connections.get(sessionId);
     if (connection) {
-      this.connections.delete(connectionId);
+      this.connections.delete(sessionId);
     }
   }
 
@@ -201,7 +208,9 @@ class WebSocketManager {
     this.connections.forEach((connection, id) => {
       if (!connection.isAlive) {
         log(`[WebSocket] Connection ${id} not responding to ping, terminating`);
-        connection.ws.terminate();
+        if (!connection.ws.destroyed) {
+          connection.ws.terminate();
+        }
         this.handleClose(id);
         return;
       }
@@ -211,7 +220,9 @@ class WebSocketManager {
         connection.ws.ping();
       } catch (error) {
         log(`[WebSocket] Ping failed for ${id}: ${error instanceof Error ? error.message : String(error)}`);
-        connection.ws.terminate();
+        if (!connection.ws.destroyed) {
+          connection.ws.terminate();
+        }
         this.handleClose(id);
       }
     });
@@ -234,7 +245,9 @@ class WebSocketManager {
     clearInterval(this.pingInterval);
     this.connections.forEach((connection) => {
       try {
-        connection.ws.close(1000, 'Server shutdown');
+        if (!connection.ws.destroyed) {
+          connection.ws.close(1000, 'Server shutdown');
+        }
       } catch (error) {
         log(`[WebSocket] Cleanup error: ${error instanceof Error ? error.message : String(error)}`);
       }
