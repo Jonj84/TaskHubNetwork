@@ -20,7 +20,10 @@ export default function PaymentResult() {
         console.log('Starting payment verification:', { sessionId });
         try {
           const response = await fetch(`/api/tokens/verify-payment?session_id=${sessionId}`, {
-            credentials: 'include'
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json'
+            }
           });
 
           console.log('Verification response received:', {
@@ -28,13 +31,10 @@ export default function PaymentResult() {
             ok: response.ok
           });
 
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Verification failed:', {
-              status: response.status,
-              error: errorText
-            });
-            throw new Error(errorText);
+          const contentType = response.headers.get('content-type');
+          if (!contentType?.includes('application/json')) {
+            console.error('Invalid response type:', contentType);
+            throw new Error('Invalid server response');
           }
 
           const data = await response.json();
@@ -77,7 +77,6 @@ export default function PaymentResult() {
             sessionId,
             message: error.message
           });
-
           toast({
             variant: 'destructive',
             title: 'Verification Failed',

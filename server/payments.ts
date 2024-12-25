@@ -1,7 +1,7 @@
 import { type Request, Response } from "express";
 import Stripe from "stripe";
 import { db } from "@db";
-import { tokenTransactions, users } from "@db/schema";
+import { tokenTransactions } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { blockchainService } from './blockchain';
 
@@ -10,6 +10,114 @@ if (!process.env.STRIPE_SECRET_KEY) {
 }
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+export async function verifyStripePayment(sessionId: string) {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    console.log('Retrieved Stripe session:', {
+      id: session.id,
+      paymentStatus: session.payment_status,
+      metadata: session.metadata
+    });
+
+    if (!session) {
+      return {
+        success: false,
+        message: 'Payment session not found',
+        code: 'SESSION_NOT_FOUND'
+      };
+    }
+
+    if (session.payment_status !== 'paid') {
+      console.log('Payment not completed:', {
+        sessionId,
+        status: session.payment_status
+      });
+      return {
+        success: false,
+        message: 'Payment has not been completed',
+        status: session.payment_status,
+        code: 'PAYMENT_INCOMPLETE'
+      };
+    }
+
+    const { tokenAmount, userId, username, bonusTokens, pricePerToken } = session.metadata || {};
+
+    if (!tokenAmount || !userId || !username) {
+      console.error('Missing metadata:', {
+        sessionId,
+        metadata: session.metadata
+      });
+      return {
+        success: false,
+        message: 'Invalid payment session data',
+        code: 'INVALID_METADATA'
+      };
+    }
+
+    // Process the token purchase
+    const result = await db.transaction(async (tx) => {
+      // Check if payment was already processed
+      const existingTransaction = await tx.query.tokenTransactions.findFirst({
+        where: eq(tokenTransactions.paymentId, session.payment_intent as string)
+      });
+
+      if (existingTransaction) {
+        return {
+          status: 'already_processed',
+          transaction: existingTransaction
+        };
+      }
+
+      // Create blockchain transaction with price per token
+      const blockchainTx = await blockchainService.createTransaction(
+        'SYSTEM',
+        username,
+        parseInt(tokenAmount),
+        {
+          paymentId: session.payment_intent as string,
+          price: session.amount_total ? session.amount_total / 100 : undefined,
+          pricePerToken: parseFloat(pricePerToken || "1.00"),
+          bonusTokens: parseInt(bonusTokens || '0')
+        }
+      );
+
+      return {
+        status: 'success',
+        transaction: blockchainTx
+      };
+    });
+
+    if (result.status === 'already_processed') {
+      return {
+        success: true,
+        status: 'processed',
+        message: 'Payment was already processed',
+        transaction: result.transaction
+      };
+    }
+
+    return {
+      success: true,
+      status: 'completed',
+      message: 'Payment processed successfully',
+      transaction: result.transaction,
+      amount: parseInt(tokenAmount),
+      price: session.amount_total ? session.amount_total / 100 : undefined,
+      pricePerToken: parseFloat(pricePerToken || "1.00"),
+      bonusTokens: parseInt(bonusTokens || '0')
+    };
+
+  } catch (error: any) {
+    console.error('Payment verification error:', error);
+    return {
+      success: false,
+      message: 'Payment verification failed',
+      code: 'VERIFICATION_ERROR',
+      error: error.message
+    };
+  }
+}
 
 // Calculate price and bonus tokens based on tiers
 function calculatePrice(amount: number) {
@@ -99,99 +207,6 @@ export async function createStripeSession(req: Request, res: Response) {
   }
 }
 
-export async function verifyStripePayment(sessionId: string) {
-  try {
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    console.log('Retrieved Stripe session:', {
-      id: session.id,
-      paymentStatus: session.payment_status,
-      metadata: session.metadata
-    });
-
-    if (!session) {
-      throw new Error('Payment session not found');
-    }
-
-    if (session.payment_status !== 'paid') {
-      console.log('Payment not completed:', {
-        sessionId,
-        status: session.payment_status
-      });
-      return res.status(400).json({
-        message: 'Payment has not been completed',
-        status: session.payment_status
-      });
-    }
-
-    const { tokenAmount, userId, username, bonusTokens, pricePerToken } = session.metadata || {};
-
-    if (!tokenAmount || !userId || !username) {
-      console.error('Missing metadata:', {
-        sessionId,
-        metadata: session.metadata
-      });
-      throw new Error('Missing required metadata in session');
-    }
-
-    // Process the token purchase
-    const result = await db.transaction(async (tx) => {
-      // Check if payment was already processed
-      const existingTransaction = await tx.query.tokenTransactions.findFirst({
-        where: eq(tokenTransactions.paymentId, session.payment_intent as string)
-      });
-
-      if (existingTransaction) {
-        return {
-          status: 'already_processed',
-          transaction: existingTransaction
-        };
-      }
-
-      // Create blockchain transaction with price per token
-      const blockchainTx = await blockchainService.createTransaction(
-        'SYSTEM',
-        username,
-        parseInt(tokenAmount),
-        {
-          paymentId: session.payment_intent as string,
-          price: session.amount_total ? session.amount_total / 100 : undefined,
-          pricePerToken: parseFloat(pricePerToken || "1.00"),
-          bonusTokens: parseInt(bonusTokens || '0')
-        }
-      );
-
-      return {
-        status: 'success',
-        transaction: blockchainTx
-      };
-    });
-
-    if (result.status === 'already_processed') {
-      return {
-        success: true,
-        status: 'processed',
-        message: 'Payment was already processed',
-        transaction: result.transaction
-      };
-    } else {
-      return {
-        success: true,
-        status: 'completed',
-        message: 'Payment processed successfully',
-        transaction: result.transaction,
-        amount: parseInt(tokenAmount),
-        price: session.amount_total ? session.amount_total / 100 : undefined,
-        pricePerToken: parseFloat(pricePerToken || "1.00"),
-        bonusTokens: parseInt(bonusTokens || '0')
-      };
-    }
-
-  } catch (error: any) {
-    console.error('Payment verification error:', error);
-    throw error;
-  }
-}
-
 export async function handleStripeWebhook(req: Request, res: Response) {
   const sig = req.headers["stripe-signature"];
 
@@ -215,7 +230,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       // Process payment asynchronously to prevent duplicate processing
-      verifyStripePayment(session.id, res).catch(error => {
+      verifyStripePayment(session.id).catch(error => {
         console.error("Async payment verification failed:", error);
       });
     }
