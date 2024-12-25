@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { relations } from "drizzle-orm";
 
@@ -18,6 +18,10 @@ export const tokenTransactions = pgTable("token_transactions", {
   type: text("type", {
     enum: ["purchase", "spend", "reward"]
   }).notNull(),
+  status: text("status", {
+    enum: ["pending", "completed", "failed"]
+  }).notNull().default("pending"),
+  paymentId: text("payment_id"),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
@@ -38,7 +42,6 @@ export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
 export const insertTokenTransactionSchema = createInsertSchema(tokenTransactions);
 export const selectTokenTransactionSchema = createSelectSchema(tokenTransactions);
-
 
 // Types
 export type User = typeof users.$inferSelect;

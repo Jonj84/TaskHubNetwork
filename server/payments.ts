@@ -42,32 +42,44 @@ async function creditTokensToUser(userId: number, tokenAmount: number, paymentId
       console.log('Beginning database transaction');
 
       // Update user's token balance
-      await tx
+      const updateResult = await tx
         .update(users)
         .set({
           tokenBalance: sql`token_balance + ${tokenAmount}`,
+          updated_at: new Date()
         })
-        .where(eq(users.id, userId));
+        .where(eq(users.id, userId))
+        .returning({ newBalance: users.tokenBalance });
 
-      console.log('Updated user token balance');
+      console.log('Updated user token balance:', updateResult);
 
       // Record the transaction
-      await tx.insert(tokenTransactions).values({
+      const transactionResult = await tx.insert(tokenTransactions).values({
         userId,
         amount: tokenAmount,
         type: 'purchase',
         status: 'completed',
         paymentId,
-        createdAt: new Date(),
-      });
+        timestamp: new Date()
+      }).returning();
 
-      console.log('Recorded token transaction');
+      console.log('Recorded token transaction:', transactionResult);
+    });
+
+    // Verify the updated balance
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: {
+        tokenBalance: true,
+        username: true
+      }
     });
 
     console.log('Successfully credited tokens:', {
       userId,
       tokenAmount,
       paymentId,
+      newBalance: user?.tokenBalance,
       timestamp: new Date().toISOString()
     });
 
