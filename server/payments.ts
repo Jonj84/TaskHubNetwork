@@ -76,7 +76,8 @@ export async function createStripeSession(req: Request, res: Response) {
     console.log('Creating Stripe session:', {
       amount,
       priceInfo,
-      userId: (req as any).user?.id
+      userId: (req as any).user?.id,
+      username: (req as any).user?.username
     });
 
     const isReplit = Boolean(req.headers['x-replit-user-id']);
@@ -105,6 +106,7 @@ export async function createStripeSession(req: Request, res: Response) {
       metadata: {
         tokenAmount: amount.toString(),
         userId: (req as any).user?.id?.toString(),
+        username: (req as any).user?.username,
         tier: priceInfo.tier,
         bonusTokens: priceInfo.bonusTokens.toString(),
         bonusPercentage: priceInfo.bonusPercentage.toString()
@@ -155,9 +157,9 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       });
     }
 
-    const { tokenAmount, userId, bonusTokens } = session.metadata || {};
+    const { tokenAmount, userId, username, bonusTokens } = session.metadata || {};
 
-    if (!tokenAmount || !userId) {
+    if (!tokenAmount || !userId || !username) {
       console.error('Missing metadata:', {
         sessionId,
         metadata: session.metadata
@@ -182,7 +184,7 @@ export async function verifyStripePayment(sessionId: string, res: Response) {
       // Create blockchain transaction
       const blockchainTx = await blockchainService.createTransaction(
         'SYSTEM',
-        session.metadata?.username || 'UNKNOWN',
+        username,
         parseInt(tokenAmount),
         {
           paymentId: session.payment_intent as string,
@@ -288,9 +290,9 @@ async function creditTokensToUser(userId: number, tokenAmount: number, paymentId
           updated_at: new Date()
         })
         .where(eq(users.id, userId))
-        .returning({ 
+        .returning({
           newBalance: users.tokenBalance,
-          username: users.username 
+          username: users.username
         });
 
       console.log('Updated user token balance:', updateResult);
@@ -309,8 +311,8 @@ async function creditTokensToUser(userId: number, tokenAmount: number, paymentId
 
       console.log('Recorded token transaction:', transactionResult);
 
-      return { 
-        status: 'success', 
+      return {
+        status: 'success',
         balance: updateResult.newBalance,
         transaction: transactionResult
       };
