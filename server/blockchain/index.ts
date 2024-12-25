@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Transaction, Token, TransactionResult } from '../../client/src/lib/blockchain/types';
 import { db } from "@db";
 import { tokens, users, tokenTransactions } from "@db/schema";
-import { sql, eq, and } from 'drizzle-orm';
+import { sql, eq, and, inArray } from 'drizzle-orm';
 import { balanceTracker } from '../services/balanceTracker';
 
 class Blockchain {
@@ -19,26 +19,22 @@ class Blockchain {
   private async initializeChain() {
     try {
       console.log('[Blockchain] Starting chain initialization');
+      const existingTransactions = await db
+        .select({
+          id: tokenTransactions.id,
+          fromAddress: tokenTransactions.fromAddress,
+          toAddress: tokenTransactions.toAddress,
+          tokenIds: tokenTransactions.tokenIds,
+          type: tokenTransactions.type,
+          timestamp: tokenTransactions.timestamp,
+        })
+        .from(tokenTransactions)
+        .orderBy(tokenTransactions.timestamp);
 
-      // Get all token transactions with their associated tokens
-      const existingTransactions = await db.query.tokenTransactions.findMany({
-        with: {
-          tokens: true,
-          user: true
-        },
-        orderBy: (tokenTransactions, { asc }) => [asc(tokenTransactions.timestamp)]
-      });
-
-      console.log('[Blockchain] Loaded transactions:', {
-        count: existingTransactions.length,
-        timestamp: new Date().toISOString()
-      });
-
-      // Convert to blockchain transactions
       this.chain = existingTransactions.map(tx => ({
         id: tx.id.toString(),
         from: tx.fromAddress || 'SYSTEM',
-        to: tx.toAddress || tx.user.username,
+        to: tx.toAddress || '',
         amount: tx.tokenIds?.length || 0,
         timestamp: tx.timestamp.getTime(),
         type: tx.type as 'transfer' | 'mint',
@@ -64,17 +60,39 @@ class Blockchain {
 
     try {
       return await db.transaction(async (tx) => {
-        // For system transactions (minting), create new tokens
+        // For system transactions (minting), throw error as it's not allowed here
         if (from === 'SYSTEM') {
           throw new Error('System transactions not allowed here');
+        }
+
+        // Get receiver's user ID
+        const toUser = await tx
+          .select()
+          .from(users)
+          .where(eq(users.username, to))
+          .limit(1)
+          .then(rows => rows[0]);
+
+        if (!toUser) {
+          throw new Error(`Recipient user not found: ${to}`);
+        }
+
+        // Get sender's user ID
+        const fromUser = await tx
+          .select()
+          .from(users)
+          .where(eq(users.username, from))
+          .limit(1)
+          .then(rows => rows[0]);
+
+        if (!fromUser) {
+          throw new Error(`Sender user not found: ${from}`);
         }
 
         // Get tokens owned by sender
         const senderTokens = await tx
           .select({
             id: tokens.id,
-            owner: tokens.owner,
-            status: tokens.status
           })
           .from(tokens)
           .where(
@@ -89,16 +107,16 @@ class Blockchain {
           throw new Error(`Insufficient tokens: have ${senderTokens.length}, need ${amount}`);
         }
 
+        const tokenIds = senderTokens.map(token => token.id);
+
         console.log('[Blockchain] Transferring tokens:', {
           from,
           to,
-          tokenCount: senderTokens.length
+          tokenCount: tokenIds.length,
+          tokenIds
         });
 
         // Update token ownership
-        const tokenIds = senderTokens.map(token => token.id);
-
-        // Update tokens ownership
         await tx
           .update(tokens)
           .set({
@@ -107,24 +125,28 @@ class Blockchain {
           })
           .where(
             and(
-              sql`id = ANY(${sql.array(tokenIds, 'uuid')})`,
-              eq(tokens.status, 'active')
+              inArray(tokens.id, tokenIds),
+              eq(tokens.status, 'active'),
+              eq(tokens.owner, from)
             )
           );
 
-        // Record transaction
+        // Create transaction record
         const [transaction] = await tx
           .insert(tokenTransactions)
           .values({
+            userId: toUser.id, // Required field from schema
             type: 'transfer',
             status: 'completed',
             fromAddress: from,
             toAddress: to,
-            tokenIds,
-            timestamp: new Date(),
+            tokenIds: tokenIds,
             metadata: {
+              baseTokens: amount,
+              bonusTokens: 0,
               timestamp: new Date().toISOString()
-            }
+            },
+            timestamp: new Date()
           })
           .returning();
 
@@ -141,7 +163,7 @@ class Blockchain {
 
         this.chain.push(chainTransaction);
 
-        // Invalidate balance caches
+        // Invalidate caches
         balanceTracker.invalidateCache(to);
         balanceTracker.invalidateCache(from);
 
@@ -207,7 +229,7 @@ class Blockchain {
           owner: tokens.owner,
           creator: tokens.creator,
           mintedInBlock: tokens.mintedInBlock,
-          metadata: tokens.metadata
+          createdAt: tokens.created_at
         })
         .from(tokens)
         .where(and(
@@ -220,8 +242,8 @@ class Blockchain {
         status: token.status,
         metadata: {
           mintedInBlock: token.mintedInBlock,
-          createdAt: token.metadata?.createdAt || new Date(),
-          previousTransfers: token.metadata?.previousTransfers || []
+          createdAt: token.createdAt,
+          previousTransfers: []
         },
         creator: token.creator,
         owner: token.owner
