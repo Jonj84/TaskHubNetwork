@@ -35,10 +35,10 @@ class WebSocketService {
     }
 
     this.updateStatus('connecting');
-    
+
     try {
       this.ws = new WebSocket(this.options.url);
-      
+
       this.ws.onopen = () => {
         console.log('[WebSocket] Connected successfully');
         this.reconnectAttempt = 0;
@@ -74,7 +74,7 @@ class WebSocketService {
 
   private updateStatus(newStatus: WebSocketStatus) {
     if (this.status === newStatus) return;
-    
+
     this.status = newStatus;
     this.options.onStatusChange?.(newStatus);
 

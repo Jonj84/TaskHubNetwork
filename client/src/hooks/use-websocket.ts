@@ -3,7 +3,7 @@ import { createWebSocketService, type WebSocketStatus } from '@/lib/websocket/We
 
 export function useWebSocket(url: string) {
   const [status, setStatus] = useState<WebSocketStatus>('disconnected');
-  const [service, setService] = useState(() => 
+  const [service] = useState(() => 
     createWebSocketService({
       url,
       onStatusChange: setStatus,
