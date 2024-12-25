@@ -12,7 +12,7 @@ export const users = pgTable("users", {
 });
 
 export const tokens = pgTable("tokens", {
-  id: text("id").primaryKey(), // Using UUID as token ID
+  id: text("id").primaryKey(),
   creator: text("creator").notNull(),
   owner: text("owner").notNull(),
   mintedInBlock: text("minted_in_block").notNull(),
@@ -35,32 +35,6 @@ export const tokens = pgTable("tokens", {
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const tokenProcessingQueue = pgTable("token_processing_queue", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  amount: integer("amount").notNull(),
-  paymentId: text("payment_id").notNull(),
-  status: text("status", {
-    enum: ["pending", "processing", "completed", "failed"]
-  }).notNull().default("pending"),
-  metadata: jsonb("metadata").$type<{
-    sessionId?: string;
-    paymentIntent?: string;
-    customerEmail?: string;
-    purchaseDate?: string;
-    price?: number;
-    tokenSpecifications?: {
-      tier: string;
-      generationType: string;
-      source: string;
-    };
-  }>(),
-  retryCount: integer("retry_count").notNull().default(0),
-  error: text("error"),
-  created_at: timestamp("created_at").notNull().defaultNow(),
-  updated_at: timestamp("updated_at").notNull().defaultNow(),
-});
-
 export const tokenTransactions = pgTable("token_transactions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -70,7 +44,7 @@ export const tokenTransactions = pgTable("token_transactions", {
   }).notNull(),
   status: text("status", {
     enum: ["pending", "completed", "failed"]
-  }).notNull().default("pending"),
+  }).notNull().default("completed"),
   paymentId: text("payment_id"),
   fromAddress: text("from_address"),
   toAddress: text("to_address"),
@@ -83,7 +57,6 @@ export const tokenTransactions = pgTable("token_transactions", {
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   transactions: many(tokenTransactions),
-  processingQueue: many(tokenProcessingQueue),
   ownedTokens: many(tokens, { relationName: "ownership" }),
   createdTokens: many(tokens, { relationName: "creation" }),
 }));
@@ -101,13 +74,6 @@ export const tokensRelations = relations(tokens, ({ one }) => ({
   }),
 }));
 
-export const tokenProcessingQueueRelations = relations(tokenProcessingQueue, ({ one }) => ({
-  user: one(users, {
-    fields: [tokenProcessingQueue.userId],
-    references: [users.id],
-  }),
-}));
-
 export const tokenTransactionsRelations = relations(tokenTransactions, ({ one }) => ({
   user: one(users, {
     fields: [tokenTransactions.userId],
@@ -122,8 +88,7 @@ export const insertTokenSchema = createInsertSchema(tokens);
 export const selectTokenSchema = createSelectSchema(tokens);
 export const insertTokenTransactionSchema = createInsertSchema(tokenTransactions);
 export const selectTokenTransactionSchema = createSelectSchema(tokenTransactions);
-export const insertTokenProcessingQueueSchema = createInsertSchema(tokenProcessingQueue);
-export const selectTokenProcessingQueueSchema = createSelectSchema(tokenProcessingQueue);
+
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -132,5 +97,3 @@ export type Token = typeof tokens.$inferSelect;
 export type InsertToken = typeof tokens.$inferInsert;
 export type TokenTransaction = typeof tokenTransactions.$inferSelect;
 export type InsertTokenTransaction = typeof tokenTransactions.$inferInsert;
-export type TokenProcessingQueue = typeof tokenProcessingQueue.$inferSelect;
-export type InsertTokenProcessingQueue = typeof tokenProcessingQueue.$inferInsert;

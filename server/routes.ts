@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { createStripeSession, handleStripeWebhook, verifyStripePayment } from "./payments";
 import { db } from "@db";
-import { tokenTransactions, tokenProcessingQueue, users, tokens } from "@db/schema";
+import { tokenTransactions, users, tokens } from "@db/schema";
 import { eq, and } from "drizzle-orm";
 import { blockchainService } from './blockchain';
 
@@ -106,134 +106,6 @@ export function registerRoutes(app: Express): Server {
   // Standard middleware
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
-
-  // Token processing endpoint - this should be called periodically
-  app.post("/api/tokens/process-queue", async (req: Request, res: Response) => {
-    try {
-      const pendingTokens = await db
-        .select()
-        .from(tokenProcessingQueue)
-        .where(
-          and(
-            eq(tokenProcessingQueue.status, 'pending'),
-            eq(tokenProcessingQueue.retryCount, 0)
-          )
-        )
-        .limit(10);
-
-      console.log('Processing pending tokens:', pendingTokens.length);
-
-      for (const queueItem of pendingTokens) {
-        try {
-          await db
-            .update(tokenProcessingQueue)
-            .set({
-              status: 'processing',
-              updated_at: new Date()
-            })
-            .where(eq(tokenProcessingQueue.id, queueItem.id));
-
-          const [user] = await db
-            .select()
-            .from(users)
-            .where(eq(users.id, queueItem.userId))
-            .limit(1);
-
-          if (!user) {
-            throw new Error('User not found');
-          }
-
-          // Create blockchain transaction which will generate tokens with metadata
-          const blockchainTx = await blockchainService.createTransaction(
-            'SYSTEM',
-            user.username,
-            queueItem.amount,
-            {
-              paymentId: queueItem.paymentId,
-              price: queueItem.metadata?.price
-            }
-          );
-
-          // Update user's token balance based on actual token count
-          const tokenCount = await db.query.tokens.count({
-            where: (tokens, { eq }) => eq(tokens.owner, user.username)
-          });
-
-          const [updatedUser] = await db
-            .update(users)
-            .set({
-              tokenBalance: tokenCount,
-              updated_at: new Date()
-            })
-            .where(eq(users.id, user.id))
-            .returning();
-
-          // Record the transaction with blockchain data
-          await db
-            .insert(tokenTransactions)
-            .values({
-              userId: queueItem.userId,
-              amount: queueItem.amount,
-              type: 'purchase',
-              status: 'completed',
-              paymentId: queueItem.paymentId,
-              fromAddress: 'SYSTEM',
-              toAddress: user.username,
-              blockHash: blockchainTx.blockHash,
-              tokenIds: blockchainTx.tokenIds,
-              metadata: {
-                ...queueItem.metadata,
-                blockchainTransaction: blockchainTx
-              },
-              timestamp: new Date()
-            });
-
-          // Mark queue item as completed
-          await db
-            .update(tokenProcessingQueue)
-            .set({
-              status: 'completed',
-              updated_at: new Date()
-            })
-            .where(eq(tokenProcessingQueue.id, queueItem.id));
-
-          console.log('Successfully processed token generation:', {
-            queueId: queueItem.id,
-            userId: user.id,
-            amount: queueItem.amount,
-            blockchainTx,
-            newBalance: updatedUser.tokenBalance
-          });
-        } catch (error: any) {
-          console.error('Failed to process token generation:', {
-            queueId: queueItem.id,
-            error: error.message
-          });
-
-          await db
-            .update(tokenProcessingQueue)
-            .set({
-              status: 'failed',
-              error: error.message,
-              retryCount: queueItem.retryCount + 1,
-              updated_at: new Date()
-            })
-            .where(eq(tokenProcessingQueue.id, queueItem.id));
-        }
-      }
-
-      res.json({
-        processed: pendingTokens.length,
-        status: 'completed'
-      });
-    } catch (error: any) {
-      console.error('Token processing error:', error);
-      res.status(500).json({
-        message: 'Failed to process token queue',
-        error: error.message
-      });
-    }
-  });
 
   // Blockchain API Routes
   app.get('/api/blockchain/transactions', (req: Request, res: Response) => {
@@ -405,17 +277,5 @@ export function registerRoutes(app: Express): Server {
   });
 
   const httpServer = createServer(app);
-
-  // Set up periodic token processing
-  setInterval(async () => {
-    try {
-      await fetch('http://localhost:5000/api/tokens/process-queue', {
-        method: 'POST',
-      });
-    } catch (error) {
-      console.error('Failed to process token queue:', error);
-    }
-  }, 30000); // Check every 30 seconds
-
   return httpServer;
 }
