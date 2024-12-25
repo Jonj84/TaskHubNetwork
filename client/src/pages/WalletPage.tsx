@@ -93,7 +93,7 @@ export default function WalletPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{user?.tokenBalance || 0}</p>
+            <p className="text-3xl font-bold">{balance || 0}</p>
             <p className="text-sm text-muted-foreground">Available tokens</p>
           </CardContent>
         </Card>
