@@ -79,7 +79,7 @@ class Blockchain {
         });
 
         if (escrowTx.type !== 'escrow') {
-          console.error('[Blockchain] Invalid transaction type:', { 
+          console.error('[Blockchain] Invalid transaction type:', {
             type: escrowTx.type,
             expected: 'escrow'
           });
@@ -227,7 +227,7 @@ class Blockchain {
           .limit(1)
           .then(rows => rows[0]);
 
-        if (!toUser) {
+        if (!toUser && to !== 'ESCROW') {
           throw new Error(`Recipient user not found: ${to}`);
         }
 
@@ -270,11 +270,12 @@ class Blockchain {
           tokenIds
         });
 
-        // Update token ownership
-        await tx
+        // Update token ownership and status
+        const updateResult = await tx
           .update(tokens)
           .set({
             owner: to,
+            status: to === 'ESCROW' ? 'escrow' : 'active',
             updated_at: new Date()
           })
           .where(
@@ -283,13 +284,19 @@ class Blockchain {
               eq(tokens.status, 'active'),
               eq(tokens.owner, from)
             )
-          );
+          )
+          .returning();
+
+        console.log('[Blockchain] Updated tokens:', {
+          updated: updateResult.length,
+          tokens: updateResult.map(t => ({ id: t.id, owner: t.owner, status: t.status }))
+        });
 
         // Create transaction record
         const [transaction] = await tx
           .insert(tokenTransactions)
           .values({
-            userId: toUser.id,
+            userId: to === 'ESCROW' ? fromUser.id : toUser.id,
             type: to === 'ESCROW' ? 'escrow' : 'transfer',
             status: 'completed',
             fromAddress: from,
@@ -318,8 +325,8 @@ class Blockchain {
         this.chain.push(chainTransaction);
 
         // Invalidate caches
-        balanceTracker.invalidateCache(to);
-        balanceTracker.invalidateCache(from);
+        await balanceTracker.invalidateCache(to);
+        await balanceTracker.invalidateCache(from);
 
         // Force sync balances
         await balanceTracker.forceSyncBalance(to);
@@ -327,7 +334,9 @@ class Blockchain {
 
         console.log('[Blockchain] Transaction completed:', {
           transactionId: transaction.id,
-          tokenCount: tokenIds.length
+          tokenCount: tokenIds.length,
+          type: chainTransaction.type,
+          status: transaction.status
         });
 
         return {
