@@ -17,23 +17,17 @@ export function useWebSocket() {
   const { toast } = useToast();
 
   const getWebSocketUrl = useCallback(() => {
-    try {
-      // Use the current window location to construct the WebSocket URL
-      const currentLocation = window.location;
-      const wsProtocol = currentLocation.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${currentLocation.host}/api/ws`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const url = `${protocol}//${host}/api/ws`;
 
-      console.log('[WebSocket] URL construction:', {
-        protocol: wsProtocol,
-        host: currentLocation.host,
-        fullUrl: wsUrl
-      });
+    console.log('[WebSocket] Constructing URL:', {
+      protocol,
+      host,
+      url
+    });
 
-      return wsUrl;
-    } catch (error) {
-      console.error('[WebSocket] URL construction error:', error);
-      throw new Error('Failed to construct WebSocket URL');
-    }
+    return url;
   }, []);
 
   const connect = useCallback(() => {
@@ -43,26 +37,22 @@ export function useWebSocket() {
         return;
       }
 
-      // Clean up any existing connection
+      // Clean up existing connection
       if (wsRef.current) {
-        console.log('[WebSocket] Cleaning up existing connection');
-        wsRef.current.close(1000);
+        wsRef.current.close(1000, 'Reconnecting');
         wsRef.current = null;
       }
 
       const wsUrl = getWebSocketUrl();
-      console.log('[WebSocket] Attempting connection:', {
-        url: wsUrl,
-        attempt: reconnectAttemptRef.current + 1
-      });
+      console.log('[WebSocket] Connecting to:', wsUrl);
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       setStatus('connecting');
 
-      // Set up connection timeout
+      // Connection timeout
       const connectionTimeout = setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) {
+        if (ws.readyState === WebSocket.CONNECTING) {
           console.log('[WebSocket] Connection timeout');
           ws.close();
         }
@@ -70,28 +60,25 @@ export function useWebSocket() {
 
       ws.onopen = () => {
         clearTimeout(connectionTimeout);
-        console.log('[WebSocket] Connected successfully');
+        console.log('[WebSocket] Connected');
         setStatus('connected');
         reconnectAttemptRef.current = 0;
 
-        // Send initial ping
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
+        // Initial ping
+        ws.send(JSON.stringify({ type: 'ping' }));
       };
 
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as WebSocketMessage;
 
-          if (message.type !== 'pong') {
-            console.log('[WebSocket] Received message:', message.type);
-          }
-
           switch (message.type) {
             case 'connection_established':
-              console.log('[WebSocket] Connection confirmed:', message.data);
               setSessionId(message.data.sessionId);
+              console.log('[WebSocket] Session established:', message.data);
+              break;
+            case 'pong':
+              console.log('[WebSocket] Received pong');
               break;
             case 'balance_update':
               console.log('[WebSocket] Balance update:', message.data);
@@ -101,9 +88,11 @@ export function useWebSocket() {
               toast({
                 variant: 'destructive',
                 title: 'Connection Error',
-                description: message.data?.message || 'Connection error occurred'
+                description: message.data.message || 'An error occurred'
               });
               break;
+            default:
+              console.log('[WebSocket] Received message:', message);
           }
         } catch (error) {
           console.error('[WebSocket] Message parsing error:', error);
@@ -115,60 +104,37 @@ export function useWebSocket() {
         console.log('[WebSocket] Connection closed:', {
           code: event.code,
           reason: event.reason,
-          wasClean: event.wasClean,
-          attempt: reconnectAttemptRef.current
+          wasClean: event.wasClean
         });
 
         setStatus('disconnected');
         wsRef.current = null;
 
-        // Only attempt reconnection if it wasn't a clean close
-        // and we haven't exceeded max attempts
         if (!event.wasClean && reconnectAttemptRef.current < 5) {
-          const backoffTime = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
-          console.log(`[WebSocket] Scheduling reconnection in ${backoffTime}ms`);
+          const backoff = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
+          console.log(`[WebSocket] Reconnecting in ${backoff}ms (attempt ${reconnectAttemptRef.current + 1})`);
 
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptRef.current++;
             connect();
-          }, backoffTime);
-        } else if (reconnectAttemptRef.current >= 5) {
-          console.log('[WebSocket] Max reconnection attempts reached');
-          toast({
-            variant: 'destructive',
-            title: 'Connection Failed',
-            description: 'Could not establish a stable connection. Please try again later.'
-          });
+          }, backoff);
         }
       };
 
       ws.onerror = (error) => {
-        console.error('[WebSocket] Connection error:', error);
+        console.error('[WebSocket] Error:', error);
         setStatus('error');
       };
 
     } catch (error) {
       console.error('[WebSocket] Setup error:', error);
       setStatus('error');
-
-      // Schedule reconnection attempt
-      if (reconnectAttemptRef.current < 5) {
-        const backoffTime = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
-        console.log(`[WebSocket] Scheduling reconnection in ${backoffTime}ms`);
-
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectAttemptRef.current++;
-          connect();
-        }, backoffTime);
-      }
     }
   }, [getWebSocketUrl, toast]);
 
-  // Start connection on mount
+  // Connect on mount
   useEffect(() => {
     connect();
-
-    // Cleanup on unmount
     return () => {
       if (wsRef.current) {
         wsRef.current.close(1000, 'Component unmounted');
@@ -179,17 +145,13 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  // Send periodic ping to keep connection alive
+  // Keepalive ping
   useEffect(() => {
     if (status !== 'connected') return;
 
     const pingInterval = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        try {
-          wsRef.current.send(JSON.stringify({ type: 'ping' }));
-        } catch (error) {
-          console.error('[WebSocket] Failed to send ping:', error);
-        }
+        wsRef.current.send(JSON.stringify({ type: 'ping' }));
       }
     }, 30000);
 
@@ -201,7 +163,7 @@ export function useWebSocket() {
     sessionId,
     send: useCallback((message: WebSocketMessage) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        console.warn('[WebSocket] Cannot send - connection not ready');
+        console.warn('[WebSocket] Cannot send - not connected');
         return;
       }
 
@@ -217,6 +179,6 @@ export function useWebSocket() {
       }
     }, [toast]),
     isConnected: status === 'connected',
-    connect // Expose connect for manual reconnection
+    connect
   };
 }
