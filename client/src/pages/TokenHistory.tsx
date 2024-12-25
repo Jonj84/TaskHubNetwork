@@ -17,14 +17,8 @@ import {
 import { format } from 'date-fns';
 import { Loader2, TrendingUp, History, CreditCard } from 'lucide-react';
 import { motion } from 'framer-motion';
-
-interface Transaction {
-  id: number;
-  amount: number;
-  type: string;
-  timestamp: string;
-  packageId: number | null;
-}
+import { TransactionFlowChart } from '@/components/TransactionFlowChart';
+import { type TokenTransaction } from '@/hooks/use-tokens';
 
 interface Insights {
   totalSpent: number;
@@ -33,7 +27,7 @@ interface Insights {
 }
 
 interface TokenHistoryResponse {
-  transactions: Transaction[];
+  transactions: TokenTransaction[];
   insights: Insights;
 }
 
@@ -71,6 +65,19 @@ export default function TokenHistory() {
   return (
     <div className="container mx-auto py-8 space-y-8">
       <h1 className="text-4xl font-bold">Token History</h1>
+
+      {/* Flow Chart Visualization */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Transaction Flow</CardTitle>
+          <CardDescription>
+            Visualize how tokens flow between different addresses in your transaction history
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TransactionFlowChart transactions={transactions} height={400} />
+        </CardContent>
+      </Card>
 
       {insights && (
         <div className="grid gap-4 md:grid-cols-3">
@@ -110,7 +117,7 @@ export default function TokenHistory() {
               <CardContent>
                 <div className="text-2xl font-bold">{insights.totalTransactions}</div>
                 <p className="text-xs text-muted-foreground">
-                  Number of purchases made
+                  Number of transactions processed
                 </p>
               </CardContent>
             </Card>
@@ -124,7 +131,7 @@ export default function TokenHistory() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Average Purchase Size
+                  Average Transaction Size
                 </CardTitle>
                 <CreditCard className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
@@ -143,7 +150,7 @@ export default function TokenHistory() {
         <CardHeader>
           <CardTitle>Transaction History</CardTitle>
           <CardDescription>
-            A detailed view of your token purchase history
+            A detailed view of your transaction history
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -153,7 +160,7 @@ export default function TokenHistory() {
                 <TableHead>Date</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Amount</TableHead>
-                <TableHead>Package</TableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -164,9 +171,7 @@ export default function TokenHistory() {
                   </TableCell>
                   <TableCell className="capitalize">{transaction.type}</TableCell>
                   <TableCell>{transaction.amount} tokens</TableCell>
-                  <TableCell>
-                    {transaction.packageId ? `Package #${transaction.packageId}` : 'Custom Amount'}
-                  </TableCell>
+                  <TableCell className="capitalize">{transaction.status}</TableCell>
                 </TableRow>
               ))}
               {transactions.length === 0 && (

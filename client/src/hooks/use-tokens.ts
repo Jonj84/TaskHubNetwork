@@ -4,9 +4,11 @@ import { useToast } from '@/hooks/use-toast';
 export interface TokenTransaction {
   id: number;
   amount: number;
-  type: 'purchase' | 'spend' | 'reward';
+  type: 'purchase' | 'spend' | 'reward' | 'transfer' | 'escrow' | 'release';
   status: 'pending' | 'completed' | 'failed';
   timestamp: string;
+  fromAddress: string;
+  toAddress: string;
 }
 
 interface TokenHistory {
