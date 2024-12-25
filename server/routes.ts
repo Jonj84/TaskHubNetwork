@@ -62,33 +62,41 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Handle task creation and token escrow in a transaction
-      const [task] = await db.transaction(async (tx) => {
-        // Create escrow transaction first
-        const escrowResult = await blockchainService.createTransaction(
-          req.user.username,
-          'ESCROW',
-          reward
-        );
+      const result = await db.transaction(async (tx) => {
+        try {
+          // Create escrow transaction first
+          const escrowResult = await blockchainService.createTransaction(
+            req.user.username,
+            'ESCROW',
+            reward
+          );
 
-        // Create task with escrow reference
-        const [newTask] = await tx.insert(tasks).values({
-          title,
-          description,
-          type,
-          reward,
-          status: 'open',
-          creatorId: req.user.id,
-          proofRequired,
-          escrowTransactionId: escrowResult.id,
-          created_at: new Date(),
-          updated_at: new Date()
-        }).returning();
+          // Create task with escrow reference
+          const [newTask] = await tx.insert(tasks).values({
+            title,
+            description,
+            type,
+            reward,
+            status: 'open',
+            creatorId: req.user.id,
+            proofRequired,
+            escrowTransactionId: escrowResult.id,
+            created_at: new Date(),
+            updated_at: new Date()
+          }).returning();
 
-        return newTask;
+          return {
+            task: newTask,
+            escrow: escrowResult
+          };
+        } catch (error) {
+          console.error('[API] Transaction failed:', error);
+          throw error;
+        }
       });
 
-      // Send JSON response
-      res.status(201).json(task);
+      // Send JSON response with the created task
+      res.status(201).json(result.task);
     } catch (error: any) {
       console.error('[API] Task creation failed:', error);
       res.status(500).json({
