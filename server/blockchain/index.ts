@@ -46,36 +46,70 @@ class Block {
     // Only create mining reward if it's not the genesis block
     if (minerAddress !== 'GENESIS') {
       console.log('Creating mining reward for:', minerAddress);
-      const rewardTokenId = uuidv4();
-      const rewardToken: Token = {
-        id: rewardTokenId,
-        creator: 'SYSTEM',
-        owner: minerAddress,
-        metadata: {
-          createdAt: new Date(),
-          mintedInBlock: this.hash,
-          previousTransfers: [],
+
+      // Find the purchase transaction to calculate mining reward
+      const purchaseTransaction = this.transactions.find(tx => 
+        tx.type === 'mint' && tx.metadata?.price && !tx.metadata?.reason
+      );
+
+      if (purchaseTransaction) {
+        // Calculate mining reward based on purchase amount and tier
+        let bonusPercentage = 0;
+        const amount = purchaseTransaction.amount;
+
+        if (amount >= 1000) {
+          bonusPercentage = 20;
+        } else if (amount >= 500) {
+          bonusPercentage = 10;
         }
-      };
 
-      this.tokens.set(rewardTokenId, rewardToken);
-      console.log('Added reward token:', { tokenId: rewardTokenId, owner: minerAddress });
+        const bonusTokens = Math.floor(amount * (bonusPercentage / 100));
+        console.log('Calculated mining reward:', { amount, bonusPercentage, bonusTokens });
 
-      const rewardTransaction: Transaction = {
-        id: uuidv4(),
-        from: 'SYSTEM',
-        to: minerAddress,
-        amount: 1,
-        timestamp: Date.now(),
-        type: 'mint',
-        tokenIds: [rewardTokenId],
-        metadata: {
-          reason: 'mining_reward'
+        if (bonusTokens > 0) {
+          // Create bonus tokens as mining rewards
+          const bonusTokenIds = Array.from({ length: bonusTokens }, () => uuidv4());
+
+          bonusTokenIds.forEach(tokenId => {
+            const rewardToken: Token = {
+              id: tokenId,
+              creator: 'SYSTEM',
+              owner: minerAddress,
+              metadata: {
+                createdAt: new Date(),
+                mintedInBlock: this.hash,
+                previousTransfers: [],
+                purchaseInfo: {
+                  reason: 'mining_bonus',
+                  originalTransactionId: purchaseTransaction.id,
+                  purchaseDate: new Date()
+                }
+              }
+            };
+
+            this.tokens.set(tokenId, rewardToken);
+            console.log('Added bonus token:', { tokenId, owner: minerAddress });
+          });
+
+          // Create a mining reward transaction for bonus tokens
+          const rewardTransaction: Transaction = {
+            id: uuidv4(),
+            from: 'SYSTEM',
+            to: minerAddress,
+            amount: bonusTokens,
+            timestamp: Date.now(),
+            type: 'mint',
+            tokenIds: bonusTokenIds,
+            metadata: {
+              reason: 'mining_bonus',
+              originalTransactionId: purchaseTransaction.id
+            }
+          };
+
+          this.transactions.push(rewardTransaction);
+          console.log('Added mining reward transaction:', rewardTransaction);
         }
-      };
-
-      this.transactions.push(rewardTransaction);
-      console.log('Added reward transaction:', rewardTransaction);
+      }
     }
   }
 
