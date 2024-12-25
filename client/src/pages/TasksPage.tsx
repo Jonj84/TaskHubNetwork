@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -40,7 +39,6 @@ const taskSchema = z.object({
   type: z.enum(['manual', 'computational'] as const),
   reward: z.number().min(1, 'Reward must be at least 1 token').max(1000, 'Reward cannot exceed 1000 tokens'),
   proofType: z.enum(['confirmation_approval', 'image_upload', 'code_submission', 'text_submission'] as const),
-  proofRequired: z.string().min(1, 'Proof requirement is required').max(200, 'Proof requirement is too long'),
 });
 
 type TaskFormData = z.infer<typeof taskSchema>;
@@ -60,7 +58,6 @@ export default function TasksPage() {
       type: 'manual',
       reward: 1,
       proofType: 'confirmation_approval',
-      proofRequired: '',
     },
   });
 
@@ -76,7 +73,12 @@ export default function TasksPage() {
 
     try {
       setIsSubmitting(true);
-      await createTask(data);
+      await createTask({
+        ...data,
+        proofRequired: data.proofType === 'confirmation_approval' 
+          ? 'Task completion needs to be confirmed by the creator'
+          : `Submit ${data.proofType.replace('_', ' ')} as proof of completion`
+      });
       setOpen(false);
       form.reset();
       toast({
@@ -94,12 +96,15 @@ export default function TasksPage() {
     }
   };
 
-  // Filter tasks into two categories
+  // Filter tasks into categories
   const availableTasks = tasks.filter(
     (task) => task.status === 'open' && task.creatorId !== user?.id
   );
   const myCreatedTasks = tasks.filter(
     (task) => task.creatorId === user?.id
+  );
+  const myAssignedTasks = tasks.filter(
+    (task) => task.workerId === user?.id
   );
 
   return (
@@ -113,9 +118,6 @@ export default function TasksPage() {
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Create New Task</DialogTitle>
-              <DialogDescription>
-                Fill in the details below to create a new task.
-              </DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(handleCreateTask)} className="space-y-4">
@@ -224,23 +226,6 @@ export default function TasksPage() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="proofRequired"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Required Proof</FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="What proof is required?" 
-                          {...field}
-                          aria-label="Required proof"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
                 <Button 
                   type="submit" 
                   className="w-full" 
@@ -253,6 +238,21 @@ export default function TasksPage() {
             </Form>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* My Assigned Tasks Section */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">My Assigned Tasks</h2>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {myAssignedTasks.map((task) => (
+            <TaskCard key={task.id} task={task} />
+          ))}
+          {myAssignedTasks.length === 0 && (
+            <p className="text-muted-foreground col-span-full text-center py-4">
+              You haven't accepted any tasks yet.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Available Tasks Section */}
