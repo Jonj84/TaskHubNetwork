@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Transaction } from '../lib/blockchain/BlockchainService';
+import { Transaction } from '../lib/blockchain/types';
 import { blockchainService } from '../lib/blockchain/BlockchainService';
 import { useToast } from './use-toast';
 import { useUser } from './use-user';
@@ -21,7 +21,6 @@ export function useBlockchain() {
     staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
-  // Add a new query for fetching balance
   const { data: balance = 0, isLoading: balanceLoading } = useQuery<number>({
     queryKey: ['/api/blockchain/balance', user?.username],
     queryFn: () => {
@@ -29,7 +28,7 @@ export function useBlockchain() {
       return blockchainService.getBalance(user.username);
     },
     enabled: !!user?.username,
-    staleTime: 5000, // Consider data fresh for 5 seconds
+    staleTime: 5000,
   });
 
   const createTransactionMutation = useMutation({
@@ -37,11 +36,7 @@ export function useBlockchain() {
       if (!user) throw new Error("Must be logged in");
 
       try {
-        await blockchainService.createTransaction(
-          user.username,
-          to,
-          amount
-        );
+        await blockchainService.createTransaction(to, amount);
         return true;
       } catch (error: any) {
         toast({
@@ -53,7 +48,6 @@ export function useBlockchain() {
       }
     },
     onSuccess: () => {
-      // Invalidate both transactions and balance queries
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain/transactions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain/pending'] });
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain/balance'] });

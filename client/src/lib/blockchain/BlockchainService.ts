@@ -42,17 +42,7 @@ class BlockchainService {
       return 0;
     }
   }
-
-  async getTokenMetadata(tokenId: string): Promise<Token | undefined> {
-    try {
-      return await this.fetchApi<Token>(`/api/blockchain/token/${tokenId}`);
-    } catch (error) {
-      console.warn(`Failed to fetch token metadata for ${tokenId}:`, error);
-      return undefined;
-    }
-  }
 }
 
-// Export a singleton instance
 export const blockchainService = new BlockchainService();
 export type { Transaction, Token };
