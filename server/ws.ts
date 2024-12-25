@@ -4,11 +4,13 @@ import { log } from "./vite";
 import type { Request } from "express";
 import { balanceTracker } from './services/balanceTracker';
 
+export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
 interface ClientMetadata {
   lastPing: number;
   subscriptions: Set<string>;
   isAlive: boolean;
-  state: 'connecting' | 'connected' | 'closing' | 'closed';
+  state: WebSocketStatus;
   userId?: string;
 }
 
@@ -19,12 +21,6 @@ interface WebSocketOptions {
 // Store active connections with metadata
 const clients = new Map<WebSocket, ClientMetadata>();
 
-// Track upgrade requests to prevent duplicates
-const pendingUpgrades = new Set<string>();
-
-// Connection queue to prevent race conditions
-const connectionQueue = new Map<string, Promise<void>>();
-
 // Active balance subscriptions
 const balanceSubscriptions = new Map<string, Set<WebSocket>>();
 
@@ -33,7 +29,6 @@ function heartbeat(this: WebSocket) {
   if (metadata) {
     metadata.isAlive = true;
     metadata.lastPing = Date.now();
-    log('[WebSocket] Heartbeat received');
   }
 }
 
@@ -41,7 +36,7 @@ async function cleanupClient(ws: WebSocket) {
   try {
     const metadata = clients.get(ws);
     if (metadata) {
-      metadata.state = 'closing';
+      metadata.state = 'disconnected';
 
       // Remove from balance subscriptions
       if (metadata.userId) {
@@ -56,7 +51,6 @@ async function cleanupClient(ws: WebSocket) {
 
       metadata.subscriptions.clear();
       clients.delete(ws);
-      metadata.state = 'closed';
     }
 
     if (ws.readyState === WebSocket.OPEN) {
@@ -81,7 +75,7 @@ export function broadcast(type: string, data: any, filter?: (client: WebSocket) 
         client.send(message);
         successCount++;
       } catch (error) {
-        log(`[WebSocket] Failed to send message: ${error instanceof Error ? error.message : String(error)}`);
+        log(`[WebSocket] Broadcast failed: ${error instanceof Error ? error.message : String(error)}`);
         cleanupClient(client);
         failCount++;
       }
@@ -91,7 +85,6 @@ export function broadcast(type: string, data: any, filter?: (client: WebSocket) 
   log(`[WebSocket] Broadcast complete: ${successCount} successful, ${failCount} failed`);
 }
 
-// Notify balance updates to subscribed clients
 export async function notifyBalanceUpdate(userId: string, newBalance: number) {
   const subscribers = balanceSubscriptions.get(userId);
   if (!subscribers) return;
@@ -101,14 +94,13 @@ export async function notifyBalanceUpdate(userId: string, newBalance: number) {
     data: { userId, balance: newBalance }
   });
 
-  // Convert Set to Array before iteration
   Array.from(subscribers).forEach(async (client) => {
     try {
       if (client.readyState === WebSocket.OPEN) {
         client.send(message);
       }
     } catch (error) {
-      log(`[WebSocket] Failed to send balance update: ${error instanceof Error ? error.message : String(error)}`);
+      log(`[WebSocket] Balance update failed: ${error instanceof Error ? error.message : String(error)}`);
       await cleanupClient(client);
     }
   });
@@ -119,69 +111,30 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
 
   server.on('upgrade', async (request, socket, head) => {
     if (!request.url) {
-      log('[WebSocket] Missing URL in upgrade request');
       socket.destroy();
       return;
     }
 
     try {
-      const requestId = `${request.headers['sec-websocket-key']}-${Date.now()}`;
-
-      if (pendingUpgrades.has(requestId)) {
-        log('[WebSocket] Duplicate upgrade request detected');
-        socket.destroy();
-        return;
-      }
-
+      // Skip non-API WebSocket upgrades
       if (!request.url.startsWith('/api/')) {
-        log('[WebSocket] Non-API upgrade request, ignoring');
         return;
       }
 
+      // Let Vite handle its own WebSocket connections
       if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
-        log('[WebSocket] Vite HMR request, skipping');
         return;
       }
 
+      // Check rate limit if provided
       if (options.beforeUpgrade && !options.beforeUpgrade(request as Request)) {
-        log('[WebSocket] Rate limit exceeded, rejecting connection');
         socket.destroy();
         return;
       }
 
-      const queueKey = `${request.socket.remoteAddress}-${request.url}`;
-      const existingPromise = connectionQueue.get(queueKey);
-
-      if (existingPromise) {
-        log('[WebSocket] Connection already in progress, queuing');
-        await existingPromise;
-        return;
-      }
-
-      const connectionPromise = new Promise<void>((resolve, reject) => {
-        try {
-          pendingUpgrades.add(requestId);
-
-          const timeout = setTimeout(() => {
-            reject(new Error('Connection timeout'));
-            pendingUpgrades.delete(requestId);
-            connectionQueue.delete(queueKey);
-          }, 10000);
-
-          wss.handleUpgrade(request, socket, head, (ws) => {
-            clearTimeout(timeout);
-            pendingUpgrades.delete(requestId);
-            connectionQueue.delete(queueKey);
-            wss.emit('connection', ws, request);
-            resolve();
-          });
-        } catch (error) {
-          reject(error);
-        }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
       });
-
-      connectionQueue.set(queueKey, connectionPromise);
-      await connectionPromise;
 
     } catch (error) {
       log(`[WebSocket] Upgrade error: ${error instanceof Error ? error.message : String(error)}`);
@@ -192,14 +145,8 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
   });
 
   const interval = setInterval(() => {
-    const now = Date.now();
     clients.forEach((metadata, ws) => {
-      if (now - metadata.lastPing > 60000) {
-        pendingUpgrades.clear();
-      }
-
       if (!metadata.isAlive || metadata.state !== 'connected') {
-        log('[WebSocket] Terminating inactive connection');
         cleanupClient(ws);
         return;
       }
@@ -226,8 +173,6 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
         state: 'connecting',
         userId
       });
-
-      log(`[WebSocket] New client connected to: ${pathname}`);
 
       ws.on('ping', heartbeat);
       ws.on('pong', heartbeat);
@@ -260,7 +205,7 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
                 data: { userId: metadata.userId, balance }
               }));
             } catch (error) {
-              log(`[WebSocket] Failed to fetch initial balance: ${error instanceof Error ? error.message : String(error)}`);
+              log(`[WebSocket] Initial balance fetch failed: ${error instanceof Error ? error.message : String(error)}`);
             }
           }
 
@@ -278,7 +223,6 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
       });
 
       ws.on('close', () => {
-        log(`[WebSocket] Client disconnected from ${pathname}`);
         cleanupClient(ws);
       });
 
@@ -296,8 +240,7 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
         type: 'connected',
         data: {
           message: 'Connected successfully',
-          endpoint: pathname,
-          timestamp: new Date().toISOString()
+          endpoint: pathname
         }
       }));
 
@@ -309,8 +252,6 @@ export function setupWebSocket(server: Server, options: WebSocketOptions = {}): 
 
   wss.on('close', () => {
     clearInterval(interval);
-    pendingUpgrades.clear();
-    connectionQueue.clear();
     balanceSubscriptions.clear();
     clients.clear();
   });
