@@ -107,7 +107,6 @@ class Blockchain {
     genesisBlock.mineBlock('GENESIS');
     this.chain.push(genesisBlock);
 
-    // Add genesis block tokens to registry
     const genesisTokens = genesisBlock.getTokens();
     console.log('Genesis block tokens:', genesisTokens);
     genesisTokens.forEach(token => {
@@ -131,14 +130,12 @@ class Blockchain {
 
   async getBalance(address: string): Promise<number> {
     console.log('Calculating balance for address:', address);
-
     try {
-      // Get token count from database
-      const tokenCount = await db.query.tokens.count({
-        where: (tokens, { eq }) => eq(tokens.owner, address)
-      });
-
-      console.log('Calculated balance:', { address, balance: tokenCount, totalTokens: this.tokenRegistry.size });
+      const result = await db.execute(
+        sql`SELECT COUNT(*) as count FROM tokens WHERE owner = ${address}`
+      );
+      const tokenCount = Number(result[0].count);
+      console.log('Calculated balance:', { address, balance: tokenCount });
       return tokenCount;
     } catch (error) {
       console.error('Error getting balance:', error);
@@ -195,9 +192,9 @@ class Blockchain {
       }
     }
 
-    // Generate unique IDs for tokens being transferred
+    // Generate unique IDs for purchased tokens
     const tokenIds = Array.from({ length: amount }, () => uuidv4());
-    console.log('Generated token IDs:', tokenIds);
+    console.log('Generated token IDs for purchase:', tokenIds);
 
     const transaction: Transaction = {
       id: uuidv4(),
@@ -220,7 +217,7 @@ class Blockchain {
     }
 
     try {
-      // Create tokens in database
+      // Create purchased tokens in database
       const tokensToCreate = tokenIds.map(tokenId => ({
         id: tokenId,
         creator: from,
@@ -238,7 +235,7 @@ class Blockchain {
       }));
 
       await db.insert(tokens).values(tokensToCreate);
-      console.log('Created tokens in database:', tokensToCreate);
+      console.log('Created purchased tokens in database:', tokensToCreate.length);
 
       // If there are bonus tokens, create them as mining rewards
       if (metadata?.bonusTokens && metadata.bonusTokens > 0) {
@@ -262,22 +259,22 @@ class Blockchain {
         }));
 
         await db.insert(tokens).values(bonusTokensToCreate);
-        console.log('Created bonus tokens in database:', bonusTokensToCreate);
+        console.log('Created bonus tokens in database:', bonusTokensToCreate.length);
 
-        // Add bonus tokens to registry
+        // Add bonus tokens to registry and result
         bonusTokensToCreate.forEach(token => {
           this.tokenRegistry.set(token.id, token as Token);
           console.log('Added bonus token to registry:', { id: token.id, owner: token.owner });
         });
 
-        // Add all token IDs to the result
+        // Add bonus token IDs to the result
         tokenIds.push(...bonusTokenIds);
       }
 
-      // Update token registry with purchased tokens
+      // Add purchased tokens to registry
       tokensToCreate.forEach(token => {
         this.tokenRegistry.set(token.id, token as Token);
-        console.log('Added token to registry:', { id: token.id, owner: token.owner });
+        console.log('Added purchased token to registry:', { id: token.id, owner: token.owner });
       });
 
       // Update user balance after all tokens are created
@@ -286,18 +283,24 @@ class Blockchain {
         await this.updateUserBalance(from);
       }
 
+      const result = {
+        id: transaction.id,
+        tokenIds,
+        blockHash: block.hash
+      };
+
+      console.log('Transaction completed successfully:', {
+        id: result.id,
+        tokenCount: result.tokenIds.length,
+        blockHash: result.blockHash
+      });
+
+      return result;
+
     } catch (error) {
       console.error('Error creating tokens in database:', error);
       throw error;
     }
-
-    const result = {
-      id: transaction.id,
-      tokenIds,
-      blockHash: block.hash
-    };
-    console.log('Transaction completed:', result);
-    return result;
   }
 
   private async minePendingTransactions(minerAddress: string): Promise<Block | undefined> {
