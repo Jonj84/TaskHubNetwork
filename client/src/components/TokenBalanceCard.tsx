@@ -1,10 +1,24 @@
 import { useBlockchain } from '../hooks/use-blockchain';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Coins } from 'lucide-react';
+import { format } from 'date-fns';
 
 export function TokenBalanceCard() {
   const { balance, isLoading, transactions = [] } = useBlockchain();
-  const recentTransactions = transactions.slice(0, 4);
+
+  // Get the most recent 4 transactions, including sends, purchases, and task-related
+  const recentTransactions = transactions
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 4)
+    .map(tx => ({
+      ...tx,
+      // Convert the amount to be relative to the current user's perspective
+      amount: tx.type === 'send' ? -tx.amount : 
+              tx.type === 'receive' ? tx.amount :
+              tx.type === 'escrow' ? -tx.amount :
+              tx.type === 'release' ? tx.amount :
+              tx.type === 'purchase' ? tx.amount : -tx.amount
+    }));
 
   return (
     <Card className="bg-white shadow-sm">
@@ -26,18 +40,28 @@ export function TokenBalanceCard() {
             </span>
             <span className="text-sm text-muted-foreground">Available tokens</span>
           </div>
-          
+
           <div className="flex flex-wrap gap-2">
             {recentTransactions.map((tx) => (
               <div
                 key={tx.id}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tx.amount > 0 ? 'text-green-700 bg-green-100' : 'text-red-700 bg-red-100'
-                }`}
+                className="flex flex-col gap-1 px-3 py-2 rounded-lg"
               >
-                {tx.amount > 0 ? '+' : '-'} {Math.abs(tx.amount)}
+                <div className={`text-sm font-medium ${
+                  tx.amount > 0 ? 'text-green-700' : 'text-red-700'
+                }`}>
+                  {tx.amount > 0 ? '+' : ''}{tx.amount}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {format(new Date(tx.timestamp), 'MMM d, h:mm a')}
+                </div>
               </div>
             ))}
+            {recentTransactions.length === 0 && (
+              <div className="w-full text-center text-sm text-muted-foreground py-2">
+                No recent transactions
+              </div>
+            )}
           </div>
         </div>
       </CardContent>
