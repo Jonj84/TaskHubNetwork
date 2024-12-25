@@ -22,20 +22,22 @@ interface PriceInfo {
   bonusPercentage: number;
   finalPrice: number;
   tier: string;
+  pricePerToken: number;
 }
 
 export default function TokenMarketplace() {
   const { toast } = useToast();
   const [tokenAmount, setTokenAmount] = useState<number>(100);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPriceLoading, setIsPriceLoading] = useState(false);
   const [pricing, setPricing] = useState<PriceInfo>({
-    basePrice: 0,
+    basePrice: 100,
     bonusTokens: 0,
     bonusPercentage: 0,
-    finalPrice: 0,
+    finalPrice: 100,
     tier: 'standard',
+    pricePerToken: 1.00
   });
-  const [isPriceLoading, setIsPriceLoading] = useState(false);
   const queryClient = useQueryClient();
 
   // Debounced price calculation
@@ -45,7 +47,14 @@ export default function TokenMarketplace() {
         setIsPriceLoading(true);
 
         if (!isValidAmount(tokenAmount)) {
-          setPricing({ basePrice: 0, bonusTokens: 0, bonusPercentage: 0, finalPrice: 0, tier: 'standard' });
+          setPricing({
+            basePrice: 0,
+            bonusTokens: 0,
+            bonusPercentage: 0,
+            finalPrice: 0,
+            tier: 'standard',
+            pricePerToken: 1.00
+          });
           return;
         }
 
@@ -60,8 +69,8 @@ export default function TokenMarketplace() {
           throw new Error(await response.text());
         }
 
-        const data = await response.json();
-        setPricing(data);
+        const { pricing } = await response.json();
+        setPricing(pricing);
       } catch (error: any) {
         await logErrorToServer(error, 'price_calculation_failed');
         toast({
@@ -80,6 +89,12 @@ export default function TokenMarketplace() {
 
     return () => clearTimeout(timeoutId);
   }, [tokenAmount, toast]);
+
+  const handleAmountChange = (value: number) => {
+    // Ensure the value is within bounds and is an integer
+    const clampedValue = Math.min(Math.max(Math.round(value), 1), 10000);
+    setTokenAmount(clampedValue);
+  };
 
   const handlePurchase = async () => {
     try {
@@ -162,10 +177,6 @@ export default function TokenMarketplace() {
 
   const isValidAmount = (amount: number) => amount >= 1 && amount <= 10000;
 
-  const handleAmountChange = (value: number) => {
-    const clampedValue = Math.min(Math.max(Math.round(value), 1), 10000);
-    setTokenAmount(clampedValue);
-  };
 
   return (
     <div className="container mx-auto py-8 px-4">

@@ -87,7 +87,8 @@ export async function createStripeSession(req: Request, res: Response) {
 
     res.json({
       checkoutUrl: session.url,
-      sessionId: session.id
+      sessionId: session.id,
+      pricing: priceInfo // Include pricing info in response
     });
   } catch (error: any) {
     console.error("Stripe session creation error:", error);
