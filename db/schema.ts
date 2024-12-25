@@ -23,7 +23,6 @@ export const tokens = pgTable("tokens", {
   metadata: jsonb("metadata").$type<{
     createdAt: Date;
     previousTransfers: Array<{
-      id: string;
       from: string;
       to: string;
       timestamp: number;
@@ -40,12 +39,12 @@ export const tokens = pgTable("tokens", {
   }>(),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
-  transactionId: integer("transaction_id").references(() => tokenTransactions.id),
+  transactionId: integer("transaction_id"),
 });
 
 export const tokenTransactions = pgTable("token_transactions", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id").notNull(),
   type: text("type", {
     enum: ["mint", "transfer", "escrow", "release", "burn"]
   }).notNull(),
@@ -61,7 +60,6 @@ export const tokenTransactions = pgTable("token_transactions", {
     bonusTokens: number;
     pricePerToken?: number;
     totalPrice?: number;
-    reason?: string;
     timestamp: string;
   }>(),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
@@ -99,6 +97,14 @@ export const tokenTransactionsRelations = relations(tokenTransactions, ({ one, m
   tokens: many(tokens),
 }));
 
+// Types for use in application code
+export type User = typeof users.$inferSelect;
+export type InsertUser = typeof users.$inferInsert;
+export type Token = typeof tokens.$inferSelect;
+export type InsertToken = typeof tokens.$inferInsert;
+export type TokenTransaction = typeof tokenTransactions.$inferSelect;
+export type InsertTokenTransaction = typeof tokenTransactions.$inferInsert;
+
 // Schemas for validation
 export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
@@ -106,11 +112,3 @@ export const insertTokenSchema = createInsertSchema(tokens);
 export const selectTokenSchema = createSelectSchema(tokens);
 export const insertTokenTransactionSchema = createInsertSchema(tokenTransactions);
 export const selectTokenTransactionSchema = createSelectSchema(tokenTransactions);
-
-// Types
-export type User = typeof users.$inferSelect;
-export type InsertUser = typeof users.$inferInsert;
-export type Token = typeof tokens.$inferSelect;
-export type InsertToken = typeof tokens.$inferInsert;
-export type TokenTransaction = typeof tokenTransactions.$inferSelect;
-export type InsertTokenTransaction = typeof tokenTransactions.$inferInsert;
