@@ -243,6 +243,50 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.get('/api/blockchain/balance/:address', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      console.log('[API] Fetching balance for:', address);
+
+      const balance = await blockchainService.getBalance(address);
+      console.log('[API] Balance result:', { address, balance });
+
+      res.json({ balance });
+    } catch (error: any) {
+      console.error('[API] Balance fetch error:', {
+        address: req.params.address,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      res.status(500).json({
+        message: 'Failed to fetch balance',
+        error: error.message
+      });
+    }
+  });
+
+  app.get('/api/blockchain/tokens/:username', async (req: Request, res: Response) => {
+    try {
+      const { username } = req.params;
+      console.log('[API] Fetching tokens for:', username);
+
+      const tokens = await blockchainService.getTokens(username);
+      console.log('[API] Tokens result:', { username, count: tokens.length });
+
+      res.json(tokens);
+    } catch (error: any) {
+      console.error('[API] Tokens fetch error:', {
+        username: req.params.username,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      res.status(500).json({
+        message: 'Failed to fetch tokens',
+        error: error.message
+      });
+    }
+  });
+
   // Final error handler - needs to be after all routes
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     console.error('[API] Unhandled Error:', {

@@ -4,7 +4,12 @@ class BlockchainService {
   private async fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const response = await fetch(endpoint, {
       credentials: 'include',
-      ...options
+      ...options,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        ...(options?.headers || {})
+      }
     });
 
     if (!response.ok) {
@@ -23,12 +28,23 @@ class BlockchainService {
     return this.fetchApi<Transaction[]>('/api/blockchain/pending');
   }
 
+  async getTokens(username: string): Promise<Token[]> {
+    try {
+      const response = await this.fetchApi<Token[]>(`/api/blockchain/tokens/${username}`);
+      console.log('[BlockchainService] Tokens fetched:', {
+        username,
+        count: response.length
+      });
+      return response;
+    } catch (error) {
+      console.error('[BlockchainService] Failed to fetch tokens:', error);
+      return [];
+    }
+  }
+
   async createTransaction(to: string, amount: number): Promise<Transaction> {
     return this.fetchApi<Transaction>('/api/blockchain/transaction', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
       body: JSON.stringify({ to, amount })
     });
   }
@@ -36,7 +52,10 @@ class BlockchainService {
   async getBalance(address: string): Promise<number> {
     try {
       const response = await this.fetchApi<{ balance: number }>(`/api/blockchain/balance/${address}`);
-      console.log('[BlockchainService] Balance response:', response);
+      console.log('[BlockchainService] Balance response:', {
+        address,
+        balance: response.balance
+      });
       return response.balance;
     } catch (error) {
       console.error('[BlockchainService] Failed to fetch balance:', error);

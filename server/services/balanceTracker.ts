@@ -52,10 +52,10 @@ export class BalanceTracker {
         return cached.balance;
       }
 
-      // Get active tokens count
+      // Get active tokens count with a more specific query
       const result = await db
         .select({
-          activeTokens: sql<number>`COUNT(*)`
+          activeTokens: sql<number>`COUNT(DISTINCT ${tokens.id})`
         })
         .from(tokens)
         .where(
@@ -118,6 +118,12 @@ export class BalanceTracker {
         previousBalance: updatedUser.tokenBalance,
         newBalance: actualBalance,
         timestamp: new Date().toISOString()
+      });
+
+      // Ensure WebSocket clients are notified
+      broadcastToUser(username, 'balance_update', { 
+        balance: actualBalance,
+        synced: true
       });
 
       return updatedUser;
