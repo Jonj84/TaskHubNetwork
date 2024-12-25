@@ -1,5 +1,6 @@
 import { Link } from 'wouter';
 import { useUser } from '../hooks/use-user';
+import { useBlockchain } from '../hooks/use-blockchain';
 import { Button } from '@/components/ui/button';
 import {
   NavigationMenu,
@@ -12,6 +13,7 @@ import { Coins } from 'lucide-react';
 
 export default function NavigationBar() {
   const { user, logout } = useUser();
+  const { balance, isLoading } = useBlockchain();
   const { toast } = useToast();
 
   const handleLogout = async () => {
@@ -61,9 +63,15 @@ export default function NavigationBar() {
         </NavigationMenu>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm">
-            <Coins className="h-4 w-4" />
-            <span>{user?.tokenBalance || 0} tokens</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full">
+            <Coins className="h-4 w-4 text-primary" />
+            <span className="font-medium">
+              {isLoading ? (
+                <span className="text-muted-foreground">Loading...</span>
+              ) : (
+                `${balance.toLocaleString()} tokens`
+              )}
+            </span>
           </div>
           <Button variant="default" asChild className="gap-2">
             <Link href="/marketplace">
