@@ -114,16 +114,22 @@ export default function TokenMarketplace() {
       const popup = window.open(
         checkoutUrl,
         'Stripe Checkout',
-        `width=${popupWidth},height=${popupHeight},left=${left},top=${top},toolbar=0,location=0,menubar=0`
+        `width=${popupWidth},height=${popupHeight},left=${left},top=${top},toolbar=0,location=0,menubar=0,status=1`
       );
 
       if (!popup) {
         throw new Error('Popup was blocked. Please allow popups and try again.');
       }
 
-      // Monitor popup status
+      // Monitor popup status and handle messages
       const checkPopup = setInterval(() => {
-        if (popup.closed) {
+        try {
+          if (popup.closed) {
+            clearInterval(checkPopup);
+            setIsProcessing(false);
+          }
+        } catch (error) {
+          // Handle cross-origin errors silently
           clearInterval(checkPopup);
           setIsProcessing(false);
         }
@@ -131,7 +137,7 @@ export default function TokenMarketplace() {
 
       toast({
         title: 'Checkout Started',
-        description: 'Please complete your purchase in the popup window',
+        description: 'Please complete your purchase in the popup window. The page will update automatically when the purchase is complete.',
       });
 
     } catch (error: any) {
