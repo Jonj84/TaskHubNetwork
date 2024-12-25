@@ -39,7 +39,7 @@ export default function StripeCheckoutDialog({ open, onOpenChange, clientSecret,
           throw new Error('Failed to initialize Stripe');
         }
 
-        // Create and mount the checkout
+        // Create and mount the payment element
         const elements = stripe.elements({
           clientSecret,
           appearance: {
@@ -47,32 +47,41 @@ export default function StripeCheckoutDialog({ open, onOpenChange, clientSecret,
           },
         });
 
-        const checkout = elements.create('payment', {
-          layout: 'tabs',
-        });
+        const paymentElement = elements.create('payment');
+        paymentElement.mount('#stripe-payment-element');
 
-        checkout.mount('#stripe-checkout-container');
+        // Handle form submission
+        const form = document.getElementById('payment-form');
+        if (form) {
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
 
-        // Handle payment completion
-        checkout.on('completed', async () => {
-          toast({
-            title: 'Payment Successful',
-            description: `Successfully purchased ${amount} tokens!`,
+            const { error } = await stripe.confirmPayment({
+              elements,
+              confirmParams: {
+                return_url: `${window.location.origin}/payment/success`,
+              },
+            });
+
+            if (error) {
+              await logErrorToServer(error, 'stripe_payment_error');
+              toast({
+                variant: 'destructive',
+                title: 'Payment Failed',
+                description: error.message || 'Failed to process payment',
+              });
+            } else {
+              toast({
+                title: 'Payment Successful',
+                description: `Successfully purchased ${amount} tokens!`,
+              });
+
+              // Refresh user data
+              queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+              onOpenChange(false);
+            }
           });
-          
-          // Refresh user data
-          queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-          onOpenChange(false);
-        });
-
-        checkout.on('error', async (error: Error) => {
-          await logErrorToServer(error, 'stripe_checkout_error');
-          toast({
-            variant: 'destructive',
-            title: 'Payment Failed',
-            description: error.message || 'Failed to process payment',
-          });
-        });
+        }
 
       } catch (error: any) {
         await logErrorToServer(error, 'stripe_mount_failed');
@@ -97,7 +106,12 @@ export default function StripeCheckoutDialog({ open, onOpenChange, clientSecret,
             <BlockchainLoader size="lg" />
           </div>
         ) : (
-          <div id="stripe-checkout-container" className="min-h-[400px]" />
+          <form id="payment-form" className="space-y-4">
+            <div id="stripe-payment-element" className="min-h-[300px]" />
+            <button type="submit" className="w-full bg-primary text-primary-foreground px-4 py-2 rounded-md hover:opacity-90">
+              Pay ${(amount / 100).toFixed(2)}
+            </button>
+          </form>
         )}
       </DialogContent>
     </Dialog>

@@ -59,8 +59,21 @@ export async function createStripeSession(req: Request, res: Response) {
       userId: (req as any).user?.id
     });
 
-    // Create Stripe checkout session with embedded mode
+    // First create a PaymentIntent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: priceInCents,
+      currency: 'usd',
+      payment_method_types: ['card'],
+      metadata: {
+        tokenAmount: amount.toString(),
+        userId: (req as any).user?.id?.toString(),
+        tier
+      }
+    });
+
+    // Then create a checkout session linked to the PaymentIntent
     const session = await stripe.checkout.sessions.create({
+      payment_intent: paymentIntent.id,
       payment_method_types: ["card"],
       line_items: [
         {
@@ -87,12 +100,12 @@ export async function createStripeSession(req: Request, res: Response) {
 
     console.log('Stripe session created:', {
       sessionId: session.id,
-      clientSecret: session.client_secret
+      clientSecret: paymentIntent.client_secret
     });
 
-    // Return the client secret for embedded checkout
+    // Return the PaymentIntent client secret
     res.json({ 
-      clientSecret: session.client_secret,
+      clientSecret: paymentIntent.client_secret,
       sessionId: session.id 
     });
   } catch (error: any) {
